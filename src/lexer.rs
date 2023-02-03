@@ -1,12 +1,11 @@
 use phf::phf_map;
-use std::str::from_utf8;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum Token<'a> {
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum Token {
     Illegal,
     Eof,
 
-    Identifier(&'a str),
+    Identifier(String),
     Number(u64),
 
     Assign,
@@ -48,109 +47,117 @@ static KEYWORDS: phf::Map<&'static str, Token> = phf_map! {
     "return" => Token::Return,
 };
 
+pub struct Lexer {
+    input: String,
+    pos: usize,
+    next_token: Option<Token>,
+}
+
+impl Lexer {
+    pub fn new(input: String) -> Lexer {
+        Lexer {
+            input,
+            pos: 0,
+            next_token: None,
+        }
+    }
+
+    pub fn peek(&self) -> Option<char> {
+        self.input.chars().nth(self.pos)
+    }
+
+    pub fn pop(&mut self) -> Option<char> {
+        self.pos += 1;
+        self.input.chars().nth(self.pos - 1)
+    }
+
+    pub fn pop_token(&mut self) -> Option<Token> {
+        if self.next_token.is_none() {
+            self.next_token = self.pop_token_internal();
+        }
+
+        self.next_token.take()
+    }
+
+    fn pop_token_internal(&mut self) -> Option<Token> {
+        loop {
+            match self.peek() {
+                None => return None,
+                Some(c) => match c {
+                    'a'..='z' | '_' => {
+                        let mut s = String::new();
+                        while let Some('a'..='z' | '_') = self.peek() {
+                            let popped = self
+                                .pop()
+                                .expect("Peek returned Some, but pop returned None");
+                            s.push(popped);
+                        }
+
+                        return Some(match KEYWORDS.get(&s) {
+                            Some(token) => token.clone(),
+                            None => Token::Identifier(s),
+                        });
+                    }
+                    '0'..='9' => {
+                        let mut s = String::new();
+                        while let Some('0'..='9') = self.peek() {
+                            let popped = self
+                                .pop()
+                                .expect("Peek returned Some, but pop returned None");
+                            s.push(popped);
+                        }
+
+                        return Some(Token::Number(s.parse().unwrap()));
+                    }
+                    '=' => {
+                        self.pop();
+                        if self.peek() == Some('=') {
+                            self.pop();
+                            return Some(Token::Eq);
+                        } else {
+                            return Some(Token::Assign);
+                        }
+                    }
+                    '+' => return self.pop().and(Some(Token::Plus)),
+                    '-' => return self.pop().and(Some(Token::Minus)),
+                    '!' => {
+                        self.pop();
+                        if self.peek() == Some('=') {
+                            self.pop();
+                            return Some(Token::NotEq);
+                        } else {
+                            return Some(Token::Bang);
+                        }
+                    }
+                    '*' => return self.pop().and(Some(Token::Asterisk)),
+                    '/' => return self.pop().and(Some(Token::Slash)),
+                    '<' => return self.pop().and(Some(Token::Lt)),
+                    '>' => return self.pop().and(Some(Token::Gt)),
+                    '(' => return self.pop().and(Some(Token::LParen)),
+                    ')' => return self.pop().and(Some(Token::RParen)),
+                    '{' => return self.pop().and(Some(Token::LBrace)),
+                    '}' => return self.pop().and(Some(Token::RBrace)),
+                    ',' => return self.pop().and(Some(Token::Comma)),
+                    ';' => return self.pop().and(Some(Token::Semicolon)),
+                    ' ' | '\t' | '\n' => {
+                        self.pop();
+                    }
+                    _ => return Some(Token::Illegal),
+                },
+            }
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum LexError {
     InvalidByte,
-    ParseIntError(std::num::ParseIntError),
-}
-
-impl From<std::str::Utf8Error> for LexError {
-    fn from(_: std::str::Utf8Error) -> Self {
-        LexError::InvalidByte
-    }
-}
-
-impl From<std::num::ParseIntError> for LexError {
-    fn from(e: std::num::ParseIntError) -> Self {
-        LexError::ParseIntError(e)
-    }
-}
-
-pub fn lex(input: &str) -> Result<Vec<Token>, LexError> {
-    let mut tokens: Vec<Token> = Vec::new();
-    let binarized_input = input.as_bytes();
-
-    let mut pos = 0;
-
-    while pos < binarized_input.len() {
-        match binarized_input[pos] {
-            b'a'..=b'z' | b'_' => {
-                let mut end = pos;
-
-                while let Some(b'a'..=b'z' | b'_') = binarized_input.get(end) {
-                    end += 1;
-                }
-
-                let identifier = &binarized_input[pos..end];
-
-                tokens.push(match KEYWORDS.get(from_utf8(identifier)?) {
-                    Some(token) => *token,
-                    None => Token::Identifier(from_utf8(identifier)?),
-                });
-
-                pos = end - 1;
-            }
-
-            b'0'..=b'9' => {
-                let mut end = pos;
-                while let Some(b'0'..=b'9') = binarized_input.get(end) {
-                    end += 1;
-                }
-
-                tokens.push(Token::Number(
-                    from_utf8(&binarized_input[pos..end])?.parse()?,
-                ));
-                pos = end - 1;
-            }
-            b'=' => {
-                let end = pos;
-                if binarized_input.get(end + 1) == Some(&b'=') {
-                    tokens.push(Token::Eq);
-                    pos += 1;
-                } else {
-                    tokens.push(Token::Assign);
-                }
-            }
-            b'+' => tokens.push(Token::Plus),
-            b'-' => tokens.push(Token::Minus),
-            b'*' => tokens.push(Token::Asterisk),
-            b'!' => {
-                let end = pos;
-                if binarized_input.get(end + 1) == Some(&b'=') {
-                    tokens.push(Token::NotEq);
-                    pos += 1;
-                } else {
-                    tokens.push(Token::Bang);
-                }
-            }
-            b'/' => tokens.push(Token::Slash),
-            b'<' => tokens.push(Token::Lt),
-            b'>' => tokens.push(Token::Gt),
-            b'(' => tokens.push(Token::LParen),
-            b')' => tokens.push(Token::RParen),
-            b'{' => tokens.push(Token::LBrace),
-            b'}' => tokens.push(Token::RBrace),
-            b',' => tokens.push(Token::Comma),
-            b';' => tokens.push(Token::Semicolon),
-            b' ' | b'\n' | b'\t' | b'\r' => (),
-
-            b => unreachable!(
-                "Token\n pos:{:?}\n bin:{:?}\n Tokens: {:?}",
-                pos,
-                char::from_u32(b as u32).unwrap(),
-                tokens
-            ),
-        }
-        pos += 1;
-    }
-    tokens.push(Token::Eof);
-
-    Ok(tokens)
 }
 
 #[cfg(test)]
 mod tests {
-    use self::super::{lex, Token};
+
+    use self::super::*;
 
     #[test]
     fn test_lexer_with_simple_char() {
@@ -165,9 +172,15 @@ mod tests {
             Token::RBrace,
             Token::Comma,
             Token::Semicolon,
-            Token::Eof,
         ];
-        assert_eq!(expect, lex(input).expect("LexError is returned"));
+
+        let mut lexer = Lexer::new(input.to_string());
+
+        for token in expect.iter() {
+            let popped_token = lexer.pop_token();
+
+            assert_eq!(Some(token), popped_token.as_ref());
+        }
     }
 
     #[test]
@@ -192,39 +205,39 @@ mod tests {
 
         let expect: Vec<Token> = vec![
             Token::Let,
-            Token::Identifier("five"),
+            Token::Identifier("five".to_string()),
             Token::Assign,
             Token::Number(5),
             Token::Semicolon,
             Token::Let,
-            Token::Identifier("ten"),
+            Token::Identifier("ten".to_string()),
             Token::Assign,
             Token::Number(10),
             Token::Semicolon,
             Token::Let,
-            Token::Identifier("add"),
+            Token::Identifier("add".to_string()),
             Token::Assign,
             Token::Fn,
             Token::LParen,
-            Token::Identifier("x"),
+            Token::Identifier("x".to_string()),
             Token::Comma,
-            Token::Identifier("y"),
+            Token::Identifier("y".to_string()),
             Token::RParen,
             Token::LBrace,
-            Token::Identifier("x"),
+            Token::Identifier("x".to_string()),
             Token::Plus,
-            Token::Identifier("y"),
+            Token::Identifier("y".to_string()),
             Token::Semicolon,
             Token::RBrace,
             Token::Semicolon,
             Token::Let,
-            Token::Identifier("result"),
+            Token::Identifier("result".to_string()),
             Token::Assign,
-            Token::Identifier("add"),
+            Token::Identifier("add".to_string()),
             Token::LParen,
-            Token::Identifier("five"),
+            Token::Identifier("five".to_string()),
             Token::Comma,
-            Token::Identifier("ten"),
+            Token::Identifier("ten".to_string()),
             Token::RParen,
             Token::Semicolon,
             Token::Bang,
@@ -264,9 +277,13 @@ mod tests {
             Token::NotEq,
             Token::Number(9),
             Token::Semicolon,
-            Token::Eof,
         ];
 
-        assert_eq!(expect, lex(input).expect("LexError is returned"));
+        let mut lexer = Lexer::new(input.to_string());
+
+        for token in expect.iter() {
+            let popped_token = lexer.pop_token();
+            assert_eq!(Some(token), popped_token.as_ref());
+        }
     }
 }
