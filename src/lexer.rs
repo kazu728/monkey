@@ -47,6 +47,7 @@ static KEYWORDS: phf::Map<&'static str, Token> = phf_map! {
     "return" => Token::Return,
 };
 
+#[derive(Debug)]
 pub struct Lexer {
     input: String,
     pos: usize,
