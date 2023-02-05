@@ -1,4 +1,4 @@
-use crate::ast::{Expression, Identifier, LetStatement, Statement};
+use crate::ast::{Expression, Identifier, LetStatement, ReturnStatement, Statement};
 
 use super::ast::Program;
 use super::lexer::{Lexer, Token};
@@ -78,10 +78,9 @@ impl Parser {
     fn parse_statement(&mut self) -> Result<Statement, ParserError> {
         match &self.current_token {
             Some(token) => match token {
-                Token::Let => {
-                    let statement = self.parse_let_statement()?;
-                    Ok(Statement::LetStatement(statement))
-                }
+                Token::Let => Ok(Statement::LetStatement(self.parse_let_statement()?)),
+                Token::Return => Ok(Statement::ReturnStatement(self.parse_return_statement()?)),
+
                 _ => todo!("Implement later. Current token is {:?}", token),
             },
             None => unreachable!("While statemment is passed, but current token is None."),
@@ -132,6 +131,17 @@ impl Parser {
             }),
         }
     }
+
+    fn parse_return_statement(&mut self) -> Result<ReturnStatement, ParserError> {
+        let token = self.current_token.clone().unwrap();
+
+        self.skip_to_semicoron();
+
+        Ok(ReturnStatement {
+            token,
+            return_value: Expression {},
+        })
+    }
 }
 
 #[cfg(test)]
@@ -168,6 +178,36 @@ mod tests {
                     assert_eq!(statement.token, Token::Let);
                     assert_eq!(statement.name.value, identifier.to_string());
                 }
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    #[test]
+    fn test_return_statements() {
+        let input = "
+          return 5;
+          return 10;
+          return 993322;
+        ";
+        let lexer = Lexer::new(input.to_string());
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+
+        if program.statements.len() != 3 {
+            panic!(
+                "program does not contain 3 statements. got: {}, statements: {:?}",
+                program.statements.len(),
+                program.statements
+            )
+        }
+
+        for statement in program.statements {
+            match statement {
+                Statement::ReturnStatement(statement) => {
+                    assert_eq!(statement.token, Token::Return);
+                }
+                _ => unreachable!(),
             }
         }
     }
