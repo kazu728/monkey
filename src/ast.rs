@@ -5,12 +5,10 @@ pub struct Program {
 }
 
 #[derive(Debug)]
-pub struct Expression {}
-
-#[derive(Debug)]
 pub enum Statement {
-    LetStatement(LetStatement),
-    ReturnStatement(ReturnStatement),
+    Let(LetStatement),
+    Return(ReturnStatement),
+    Expression(ExpressionStatement),
 }
 
 #[derive(Debug)]
@@ -24,6 +22,18 @@ pub struct LetStatement {
 pub struct ReturnStatement {
     pub token: Token,
     pub return_value: Expression,
+}
+
+#[derive(Debug)]
+pub struct ExpressionStatement {
+    pub token: Token,
+    pub expression: Expression,
+}
+
+#[derive(Debug)]
+pub enum Expression {
+    Identifier(Identifier),
+    Todo,
 }
 
 #[derive(Debug)]
