@@ -10,7 +10,9 @@ use std::fmt::{Debug, Formatter};
 #[derive(Debug)]
 pub enum ParserError {
     UnexpectedToken { expected: Token, actual: Token },
-    UnexpectedEOF,
+    UnexpectedEof,
+    NotPrefixOperator { actual: Token },
+    NotInfixOperator { actual: Token },
 }
 
 #[derive(Debug, PartialEq, PartialOrd)]
@@ -21,7 +23,6 @@ enum Precedence {
     Sum,
     Product,
     Prefix,
-    Call,
 }
 
 impl Precedence {
@@ -36,8 +37,12 @@ impl Precedence {
     }
 }
 
-struct PrefixParseFn(fn(&mut Parser) -> Expression);
-struct InfixParsefn(fn(&mut Parser, Expression) -> Expression);
+struct PrefixParseFn {
+    apply: fn(&mut Parser) -> Result<Expression, ParserError>,
+}
+struct InfixParsefn {
+    apply: fn(&mut Parser, Expression) -> Result<Expression, ParserError>,
+}
 
 impl Debug for PrefixParseFn {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
@@ -102,7 +107,7 @@ impl Parser {
         loop {
             match &self.peek_token {
                 None => break,
-                Some(asdf) => match asdf {
+                Some(token) => match token {
                     Token::Semicolon => {
                         self.next_token();
                         break;
@@ -114,15 +119,26 @@ impl Parser {
         }
     }
 
-    fn register_prefix(&mut self, token: Token, f: fn(&mut Parser) -> Expression) {
-        self.prefix_parse_fns.insert(token, PrefixParseFn(f));
+    fn register_prefix(
+        &mut self,
+        token: Token,
+        f: fn(&mut Parser) -> Result<Expression, ParserError>,
+    ) {
+        self.prefix_parse_fns
+            .insert(token, PrefixParseFn { apply: f });
     }
-    fn register_infix(&mut self, token: Token, f: fn(&mut Parser, left: Expression) -> Expression) {
-        self.infix_parse_fns.insert(token, InfixParsefn(f));
+    fn register_infix(
+        &mut self,
+        token: Token,
+        f: fn(&mut Parser, left: Expression) -> Result<Expression, ParserError>,
+    ) {
+        self.infix_parse_fns
+            .insert(token, InfixParsefn { apply: f });
     }
 
     pub fn parse_program(&mut self) -> Program {
         let mut program = Program { statements: vec![] };
+
         while self.current_token.is_some() {
             match self.parse_statement() {
                 Ok(statement) => program.statements.push(statement),
@@ -132,9 +148,15 @@ impl Parser {
                         ParserError::UnexpectedToken { expected, actual } => self
                             .errors
                             .push(format!("Expected {:?}, but got {:?}", expected, actual)),
-                        ParserError::UnexpectedEOF => {
+                        ParserError::UnexpectedEof => {
                             self.errors.push("Unexpected EOF".to_string())
                         }
+                        ParserError::NotPrefixOperator { actual } => self
+                            .errors
+                            .push(format!("Not prefix operator: {:?}", actual)),
+                        ParserError::NotInfixOperator { actual } => self
+                            .errors
+                            .push(format!("Not infix operator: {:?}", actual)),
                     }
                 }
             }
@@ -219,43 +241,33 @@ impl Parser {
         let token = self
             .current_token
             .clone()
-            .ok_or(ParserError::UnexpectedEOF)?;
+            .ok_or(ParserError::UnexpectedEof)?;
 
-        let expression = self.parse_expression(Precedence::Lowest);
+        let expression = self.parse_expression(Precedence::Lowest)?;
 
         self.skip_to_semicoron();
 
         Ok(ExpressionStatement { token, expression })
     }
 
-    fn parse_expression(&mut self, precedence: Precedence) -> Expression {
-        let mut left_expression = match self.current_token {
-            Some(Token::Identifier(_)) => self
-                .prefix_parse_fns
-                .get(&Token::Identifier("Identifier".to_string()))
-                .expect("Identifier's parseFn is not registered")
-                .0(self),
-            Some(Token::Number(_)) => self
-                .prefix_parse_fns
-                .get(&Token::Number(0))
-                .expect("Number's parseFn is not registered")
-                .0(self),
-            Some(Token::Bang) => self
-                .prefix_parse_fns
-                .get(&Token::Bang)
-                .expect("Bang's parseFn is not registered")
-                .0(self),
-            Some(Token::Minus) => self
-                .prefix_parse_fns
-                .get(&Token::Minus)
-                .expect("Minus's parseFn is not registered")
-                .0(self),
-            _ => panic!("Unexpected token: {:?}", self.current_token),
-        };
+    fn parse_expression(&mut self, precedence: Precedence) -> Result<Expression, ParserError> {
+        let mut left_expression = (self
+            .prefix_parse_fns
+            .get(&match self.current_token {
+                Some(Token::Identifier(_)) => Token::Identifier("Identifier".to_string()),
+                Some(Token::Number(_)) => Token::Number(0),
+                Some(Token::Bang) => Token::Bang,
+                Some(Token::Minus) => Token::Minus,
+                _ => panic!("Unexpected token: {:?}", self.current_token),
+            })
+            .expect("Expression's parseFn is not registered")
+            .apply)(self)?;
 
-        while self.peek_token != Some(Token::Semicolon)
-            && precedence < Precedence::from_token(self.peek_token.as_ref().unwrap())
-        {
+        while match &self.peek_token {
+            Some(Token::Semicolon) => false,
+            Some(token) => precedence < Precedence::from_token(token),
+            None => false,
+        } {
             self.next_token();
 
             let infix = self
@@ -264,79 +276,93 @@ impl Parser {
 
             match infix {
                 Some(infix_parsefn) => {
-                    left_expression = infix_parsefn.0(self, left_expression);
+                    left_expression = (infix_parsefn.apply)(self, left_expression)?;
                 }
-                None => {
-                    return left_expression;
-                }
+                None => return Ok(left_expression),
             }
         }
-        left_expression
+        Ok(left_expression)
     }
 
-    pub fn parse_identifier(&mut self) -> Expression {
+    pub fn parse_identifier(&mut self) -> Result<Expression, ParserError> {
         match &self.current_token {
-            Some(Token::Identifier(s)) => Expression::Identifier(Identifier::new(
+            Some(Token::Identifier(s)) => Ok(Expression::Identifier(Identifier::new(
                 Token::Identifier(s.to_string()),
                 s.to_string(),
-            )),
-            _ => unreachable!(),
+            ))),
+            Some(unexpected_token) => Err(ParserError::UnexpectedToken {
+                expected: Token::Identifier("Identifier".to_string()),
+                actual: unexpected_token.clone(),
+            }),
+            None => Err(ParserError::UnexpectedEof),
         }
     }
 
-    pub fn parse_number(&mut self) -> Expression {
+    pub fn parse_number(&mut self) -> Result<Expression, ParserError> {
         match &self.current_token {
-            Some(Token::Number(n)) => {
-                Expression::NumberLiteral(NumberLiteral::new(Token::Number(*n), *n))
-            }
-            _ => unreachable!(),
+            Some(Token::Number(n)) => Ok(Expression::NumberLiteral(NumberLiteral::new(
+                Token::Number(*n),
+                *n,
+            ))),
+            Some(unexpected_token) => Err(ParserError::UnexpectedToken {
+                expected: Token::Number(0),
+                actual: unexpected_token.clone(),
+            }),
+            None => Err(ParserError::UnexpectedEof),
         }
     }
 
-    pub fn parse_prefix_expression(&mut self) -> Expression {
+    pub fn parse_prefix_expression(&mut self) -> Result<Expression, ParserError> {
         match &self.current_token.clone() {
             Some(token) => {
                 let operator = match token {
-                    Token::Bang => "!".to_string(),
-                    Token::Minus => "-".to_string(),
-                    _ => unreachable!(),
-                };
+                    Token::Bang => "!",
+                    Token::Minus => "-",
+                    _ => Err(ParserError::NotPrefixOperator {
+                        actual: token.clone(),
+                    })?,
+                }
+                .to_string();
+
                 self.next_token();
 
-                Expression::PrefixExpression(PrefixExpression::new(
+                Ok(Expression::PrefixExpression(PrefixExpression::new(
                     token.clone(),
                     operator,
-                    self.parse_expression(Precedence::Prefix),
-                ))
+                    self.parse_expression(Precedence::Prefix)?,
+                )))
             }
-            None => unreachable!(),
+            None => Err(ParserError::UnexpectedEof),
         }
     }
 
-    pub fn parse_infix_expression(&mut self, left: Expression) -> Expression {
+    pub fn parse_infix_expression(&mut self, left: Expression) -> Result<Expression, ParserError> {
         match self.current_token.clone() {
             Some(token) => {
                 let operator = match &token {
-                    Token::Plus => "+".to_string(),
-                    Token::Minus => "-".to_string(),
-                    Token::Slash => "/".to_string(),
-                    Token::Asterisk => "*".to_string(),
-                    Token::Eq => "==".to_string(),
-                    Token::NotEq => "!=".to_string(),
-                    Token::Lt => "<".to_string(),
-                    Token::Gt => ">".to_string(),
-                    _ => panic!("Unexpected token: {:?}", self.current_token),
-                };
+                    Token::Plus => "+",
+                    Token::Minus => "-",
+                    Token::Slash => "/",
+                    Token::Asterisk => "*",
+                    Token::Eq => "==",
+                    Token::NotEq => "!=",
+                    Token::Lt => "<",
+                    Token::Gt => ">",
+                    _ => Err(ParserError::NotInfixOperator {
+                        actual: token.clone(),
+                    })?,
+                }
+                .to_string();
                 self.next_token();
 
-                Expression::InfixExpression(InfixExpression::new(
+                Ok(Expression::InfixExpression(InfixExpression::new(
                     token.clone(),
                     left,
                     operator,
-                    self.parse_expression(Precedence::from_token(&token)),
-                ))
+                    self.parse_expression(Precedence::from_token(&token))?,
+                )))
             }
-            _ => panic!("Unexpected token: {:?}", self.current_token),
+            None => Err(ParserError::UnexpectedEof),
         }
     }
 }
