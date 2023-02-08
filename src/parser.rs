@@ -1,5 +1,6 @@
 use super::ast::{
-    Expression, ExpressionStatement, Identifier, LetStatement, Program, ReturnStatement, Statement,
+    Expression, ExpressionStatement, Identifier, LetStatement, NumberLiteral, PrefixExpression,
+    Program, ReturnStatement, Statement,
 };
 
 use super::lexer::{Lexer, Token};
@@ -58,6 +59,10 @@ impl Parser {
             Parser::parse_identifier,
         );
 
+        parser.register_prefix(Token::Number(0), Parser::parse_number);
+        parser.register_prefix(Token::Bang, Parser::parse_prefix_expression);
+        parser.register_prefix(Token::Minus, Parser::parse_prefix_expression);
+
         parser
     }
 
@@ -90,7 +95,6 @@ impl Parser {
 
     pub fn parse_program(&mut self) -> Program {
         let mut program = Program { statements: vec![] };
-
         while self.current_token.is_some() {
             match self.parse_statement() {
                 Ok(statement) => program.statements.push(statement),
@@ -203,7 +207,23 @@ impl Parser {
                 .get(&Token::Identifier("Identifier".to_string()))
                 .expect("Identifier's parseFn is not registered")
                 .0(self),
-            _ => Expression::Todo,
+            Some(Token::Number(_)) => self
+                .prefix_parse_fns
+                .get(&Token::Number(0))
+                .expect("Number's parseFn is not registered")
+                .0(self),
+            Some(Token::Bang) => self
+                .prefix_parse_fns
+                .get(&Token::Bang)
+                .expect("Bang's parseFn is not registered")
+                .0(self),
+            Some(Token::Minus) => self
+                .prefix_parse_fns
+                .get(&Token::Minus)
+                .expect("Minus's parseFn is not registered")
+                .0(self),
+
+            _ => panic!("Unexpected token: {:?}", self.current_token),
         }
     }
 
@@ -216,11 +236,43 @@ impl Parser {
             _ => unreachable!(),
         }
     }
+
+    pub fn parse_number(&mut self) -> Expression {
+        match &self.current_token {
+            Some(Token::Number(n)) => {
+                Expression::NumberLiteral(NumberLiteral::new(Token::Number(*n), *n))
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn parse_prefix_expression(&mut self) -> Expression {
+        match &self.current_token.clone() {
+            Some(token) => {
+                let operator = match token {
+                    Token::Bang => "!".to_string(),
+                    Token::Minus => "-".to_string(),
+                    _ => unreachable!(),
+                };
+                self.next_token();
+
+                Expression::PrefixExpression(PrefixExpression::new(
+                    token.clone(),
+                    operator,
+                    self.parse_expression(Precedence::Prefix),
+                ))
+            }
+            None => unreachable!(),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{ast::Statement, lexer::*};
+    use crate::{
+        ast::{Expression, Statement},
+        lexer::*,
+    };
 
     use super::Parser;
 
@@ -303,13 +355,100 @@ mod tests {
             )
         }
         match program.statements.get(0) {
-            Some(Statement::Expression(statement)) => {
-                assert_eq!(statement.token, Token::Identifier("foobar".to_string()));
-            }
+            Some(Statement::Expression(statement)) => match &statement.expression {
+                Expression::Identifier(identifier) => {
+                    assert_eq!(identifier.token, Token::Identifier("foobar".to_string()));
+                    assert_eq!(identifier.value, "foobar".to_string());
+                }
+                _ => unreachable!(),
+            },
             _ => panic!(
                 "Expected ExpressionStatement, but got {:?}",
                 program.statements.get(0)
             ),
+        }
+    }
+
+    #[test]
+    fn test_number() {
+        let input = "5;";
+
+        let lexer = Lexer::new(input.to_string());
+        let mut parser = Parser::new(lexer);
+
+        let program = parser.parse_program();
+
+        if program.statements.len() != 1 {
+            panic!(
+                "program does not contain 1 statements. got: {}, statements: {:?}",
+                program.statements.len(),
+                program.statements
+            )
+        }
+        match program.statements.get(0) {
+            Some(Statement::Expression(statement)) => match &statement.expression {
+                Expression::NumberLiteral(number) => {
+                    assert_eq!(number.token, Token::Number(5));
+                    assert_eq!(number.value, 5);
+                }
+                _ => unreachable!(),
+            },
+            _ => panic!(
+                "Expected ExpressionStatement, but got {:?}",
+                program.statements.get(0)
+            ),
+        }
+    }
+    #[test]
+    fn test_parsing_prefix_expressions() {
+        struct InputExpression {
+            input: String,
+            operator: String,
+            value: u64,
+        }
+        let prefix_expressions: Vec<InputExpression> = vec![
+            InputExpression {
+                input: "!5;".to_string(),
+                operator: "!".to_string(),
+                value: 5,
+            },
+            InputExpression {
+                input: "-15;".to_string(),
+                operator: "-".to_string(),
+                value: 15,
+            },
+        ];
+
+        for prefix_expression in prefix_expressions {
+            let lexer = Lexer::new(prefix_expression.input);
+            let mut parser = Parser::new(lexer);
+            let program = parser.parse_program();
+
+            if program.statements.len() != 1 {
+                panic!(
+                    "program does not contain 1 statements. got: {}, statements: {:?}",
+                    program.statements.len(),
+                    program.statements
+                )
+            }
+            match program.statements.get(0) {
+                Some(Statement::Expression(statement)) => match &statement.expression {
+                    Expression::PrefixExpression(expression) => {
+                        assert_eq!(expression.operator, prefix_expression.operator);
+                        match &*expression.right {
+                            Expression::NumberLiteral(number) => {
+                                assert_eq!(number.value, prefix_expression.value);
+                            }
+                            _ => unreachable!(),
+                        }
+                    }
+                    _ => unreachable!(),
+                },
+                _ => panic!(
+                    "Expected ExpressionStatement, but got {:?}",
+                    program.statements.get(0)
+                ),
+            }
         }
     }
 }

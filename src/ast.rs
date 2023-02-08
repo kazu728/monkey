@@ -33,6 +33,8 @@ pub struct ExpressionStatement {
 #[derive(Debug)]
 pub enum Expression {
     Identifier(Identifier),
+    NumberLiteral(NumberLiteral),
+    PrefixExpression(PrefixExpression),
     Todo,
 }
 
@@ -45,5 +47,34 @@ pub struct Identifier {
 impl Identifier {
     pub fn new(token: Token, value: String) -> Identifier {
         Identifier { token, value }
+    }
+}
+
+#[derive(Debug)]
+pub struct NumberLiteral {
+    pub token: Token,
+    pub value: u64,
+}
+
+impl NumberLiteral {
+    pub fn new(token: Token, value: u64) -> NumberLiteral {
+        NumberLiteral { token, value }
+    }
+}
+
+#[derive(Debug)]
+pub struct PrefixExpression {
+    pub token: Token,
+    pub operator: String,
+    pub right: Box<Expression>,
+}
+
+impl PrefixExpression {
+    pub fn new(token: Token, operator: String, right: Expression) -> PrefixExpression {
+        PrefixExpression {
+            token,
+            operator,
+            right: Box::new(right),
+        }
     }
 }
