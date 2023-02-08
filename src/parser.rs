@@ -1,6 +1,6 @@
 use super::ast::{
-    Expression, ExpressionStatement, Identifier, LetStatement, NumberLiteral, PrefixExpression,
-    Program, ReturnStatement, Statement,
+    Expression, ExpressionStatement, Identifier, InfixExpression, LetStatement, NumberLiteral,
+    PrefixExpression, Program, ReturnStatement, Statement,
 };
 
 use super::lexer::{Lexer, Token};
@@ -13,6 +13,7 @@ pub enum ParserError {
     UnexpectedEOF,
 }
 
+#[derive(Debug, PartialEq, PartialOrd)]
 enum Precedence {
     Lowest,
     Equals,
@@ -23,11 +24,30 @@ enum Precedence {
     Call,
 }
 
-struct ParseFn(fn(&mut Parser) -> Expression);
+impl Precedence {
+    fn from_token(token: &Token) -> Precedence {
+        match token {
+            Token::Eq | Token::NotEq => Precedence::Equals,
+            Token::Lt | Token::Gt => Precedence::LessGreater,
+            Token::Plus | Token::Minus => Precedence::Sum,
+            Token::Slash | Token::Asterisk => Precedence::Product,
+            _ => Precedence::Lowest,
+        }
+    }
+}
 
-impl Debug for ParseFn {
+struct PrefixParseFn(fn(&mut Parser) -> Expression);
+struct InfixParsefn(fn(&mut Parser, Expression) -> Expression);
+
+impl Debug for PrefixParseFn {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        write!(f, "FunctionWrapper")
+        write!(f, "PrefixParseFn")
+    }
+}
+
+impl Debug for InfixParsefn {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        write!(f, "InfixParsefn")
     }
 }
 
@@ -36,8 +56,8 @@ pub struct Parser {
     lexer: Lexer,
     current_token: Option<Token>,
     peek_token: Option<Token>,
-    prefix_parse_fns: HashMap<Token, ParseFn>,
-    infix_parse_fns: HashMap<Token, fn(Expression) -> Expression>,
+    prefix_parse_fns: HashMap<Token, PrefixParseFn>,
+    infix_parse_fns: HashMap<Token, InfixParsefn>,
     errors: Vec<String>,
 }
 
@@ -62,6 +82,14 @@ impl Parser {
         parser.register_prefix(Token::Number(0), Parser::parse_number);
         parser.register_prefix(Token::Bang, Parser::parse_prefix_expression);
         parser.register_prefix(Token::Minus, Parser::parse_prefix_expression);
+        parser.register_infix(Token::Plus, Parser::parse_infix_expression);
+        parser.register_infix(Token::Minus, Parser::parse_infix_expression);
+        parser.register_infix(Token::Slash, Parser::parse_infix_expression);
+        parser.register_infix(Token::Asterisk, Parser::parse_infix_expression);
+        parser.register_infix(Token::Eq, Parser::parse_infix_expression);
+        parser.register_infix(Token::NotEq, Parser::parse_infix_expression);
+        parser.register_infix(Token::Lt, Parser::parse_infix_expression);
+        parser.register_infix(Token::Gt, Parser::parse_infix_expression);
 
         parser
     }
@@ -87,10 +115,10 @@ impl Parser {
     }
 
     fn register_prefix(&mut self, token: Token, f: fn(&mut Parser) -> Expression) {
-        self.prefix_parse_fns.insert(token, ParseFn(f));
+        self.prefix_parse_fns.insert(token, PrefixParseFn(f));
     }
-    fn register_infix(&mut self, token: Token, f: fn(Expression) -> Expression) {
-        self.infix_parse_fns.insert(token, f);
+    fn register_infix(&mut self, token: Token, f: fn(&mut Parser, left: Expression) -> Expression) {
+        self.infix_parse_fns.insert(token, InfixParsefn(f));
     }
 
     pub fn parse_program(&mut self) -> Program {
@@ -200,8 +228,8 @@ impl Parser {
         Ok(ExpressionStatement { token, expression })
     }
 
-    fn parse_expression(&mut self, _precedence: Precedence) -> Expression {
-        match self.current_token {
+    fn parse_expression(&mut self, precedence: Precedence) -> Expression {
+        let mut left_expression = match self.current_token {
             Some(Token::Identifier(_)) => self
                 .prefix_parse_fns
                 .get(&Token::Identifier("Identifier".to_string()))
@@ -222,9 +250,28 @@ impl Parser {
                 .get(&Token::Minus)
                 .expect("Minus's parseFn is not registered")
                 .0(self),
-
             _ => panic!("Unexpected token: {:?}", self.current_token),
+        };
+
+        while self.peek_token != Some(Token::Semicolon)
+            && precedence < Precedence::from_token(self.peek_token.as_ref().unwrap())
+        {
+            self.next_token();
+
+            let infix = self
+                .infix_parse_fns
+                .get(self.current_token.as_ref().unwrap());
+
+            match infix {
+                Some(infix_parsefn) => {
+                    left_expression = infix_parsefn.0(self, left_expression);
+                }
+                None => {
+                    return left_expression;
+                }
+            }
         }
+        left_expression
     }
 
     pub fn parse_identifier(&mut self) -> Expression {
@@ -263,6 +310,33 @@ impl Parser {
                 ))
             }
             None => unreachable!(),
+        }
+    }
+
+    pub fn parse_infix_expression(&mut self, left: Expression) -> Expression {
+        match self.current_token.clone() {
+            Some(token) => {
+                let operator = match &token {
+                    Token::Plus => "+".to_string(),
+                    Token::Minus => "-".to_string(),
+                    Token::Slash => "/".to_string(),
+                    Token::Asterisk => "*".to_string(),
+                    Token::Eq => "==".to_string(),
+                    Token::NotEq => "!=".to_string(),
+                    Token::Lt => "<".to_string(),
+                    Token::Gt => ">".to_string(),
+                    _ => panic!("Unexpected token: {:?}", self.current_token),
+                };
+                self.next_token();
+
+                Expression::InfixExpression(InfixExpression::new(
+                    token.clone(),
+                    left,
+                    operator,
+                    self.parse_expression(Precedence::from_token(&token)),
+                ))
+            }
+            _ => panic!("Unexpected token: {:?}", self.current_token),
         }
     }
 }
@@ -443,6 +517,107 @@ mod tests {
                         }
                     }
                     _ => unreachable!(),
+                },
+                _ => panic!(
+                    "Expected ExpressionStatement, but got {:?}",
+                    program.statements.get(0)
+                ),
+            }
+        }
+    }
+
+    #[test]
+    fn test_parsing_infix_expression() {
+        struct InputExpression {
+            input: String,
+            left_value: u64,
+            operator: String,
+            right_value: u64,
+        }
+        let infix_expressions: Vec<InputExpression> = vec![
+            InputExpression {
+                input: "5 + 5;".to_string(),
+                left_value: 5,
+                operator: "+".to_string(),
+                right_value: 5,
+            },
+            InputExpression {
+                input: "5 - 5;".to_string(),
+                left_value: 5,
+                operator: "-".to_string(),
+                right_value: 5,
+            },
+            InputExpression {
+                input: "5 * 5;".to_string(),
+                left_value: 5,
+                operator: "*".to_string(),
+                right_value: 5,
+            },
+            InputExpression {
+                input: "5 / 5;".to_string(),
+                left_value: 5,
+                operator: "/".to_string(),
+                right_value: 5,
+            },
+            InputExpression {
+                input: "5 > 5;".to_string(),
+                left_value: 5,
+                operator: ">".to_string(),
+                right_value: 5,
+            },
+            InputExpression {
+                input: "5 < 5;".to_string(),
+                left_value: 5,
+                operator: "<".to_string(),
+                right_value: 5,
+            },
+            InputExpression {
+                input: "5 == 5;".to_string(),
+                left_value: 5,
+                operator: "==".to_string(),
+                right_value: 5,
+            },
+            InputExpression {
+                input: "5 != 5;".to_string(),
+                left_value: 5,
+                operator: "!=".to_string(),
+                right_value: 5,
+            },
+        ];
+
+        for infix_expression in infix_expressions {
+            let lexer = Lexer::new(infix_expression.input);
+            let mut parser = Parser::new(lexer);
+            let program = parser.parse_program();
+
+            if program.statements.len() != 1 {
+                panic!(
+                    "program does not contain 1 statements. got: {}, statements: {:?}",
+                    program.statements.len(),
+                    program.statements
+                )
+            }
+            match program.statements.get(0) {
+                Some(Statement::Expression(statement)) => match &statement.expression {
+                    Expression::InfixExpression(expression) => {
+                        assert_eq!(expression.operator, infix_expression.operator);
+                        match &*expression.left {
+                            Expression::NumberLiteral(number) => {
+                                assert_eq!(number.value, infix_expression.left_value);
+                            }
+                            _ => unreachable!(),
+                        }
+                        match &*expression.right {
+                            Expression::NumberLiteral(number) => {
+                                assert_eq!(number.value, infix_expression.right_value);
+                            }
+                            _ => unreachable!(),
+                        }
+                    }
+                    _ => panic!(
+                        "Expected InfixExpression, but got {:?}",
+                        statement.expression
+                    ),
                 },
                 _ => panic!(
                     "Expected ExpressionStatement, but got {:?}",
