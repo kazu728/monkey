@@ -1,8 +1,7 @@
 use super::ast::{
-    Expression, ExpressionStatement, Identifier, InfixExpression, LetStatement, NumberLiteral,
-    PrefixExpression, Program, ReturnStatement, Statement,
+    Boolean, Expression, ExpressionStatement, Identifier, InfixExpression, LetStatement,
+    NumberLiteral, PrefixExpression, Program, ReturnStatement, Statement,
 };
-
 use super::lexer::{Lexer, Token};
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
@@ -87,6 +86,8 @@ impl Parser {
         parser.register_prefix(Token::Number(0), Parser::parse_number);
         parser.register_prefix(Token::Bang, Parser::parse_prefix_expression);
         parser.register_prefix(Token::Minus, Parser::parse_prefix_expression);
+        parser.register_prefix(Token::True, Parser::parse_boolean);
+        parser.register_prefix(Token::False, Parser::parse_boolean);
         parser.register_infix(Token::Plus, Parser::parse_infix_expression);
         parser.register_infix(Token::Minus, Parser::parse_infix_expression);
         parser.register_infix(Token::Slash, Parser::parse_infix_expression);
@@ -256,6 +257,8 @@ impl Parser {
             .get(&match self.current_token {
                 Some(Token::Identifier(_)) => Token::Identifier("Identifier".to_string()),
                 Some(Token::Number(_)) => Token::Number(0),
+                Some(Token::True) => Token::True,
+                Some(Token::False) => Token::False,
                 Some(Token::Bang) => Token::Bang,
                 Some(Token::Minus) => Token::Minus,
                 _ => panic!("Unexpected token: {:?}", self.current_token),
@@ -270,11 +273,11 @@ impl Parser {
         } {
             self.next_token();
 
-            let infix = self
+            let maybe_infix_parsefn = self
                 .infix_parse_fns
                 .get(self.current_token.as_ref().unwrap());
 
-            match infix {
+            match maybe_infix_parsefn {
                 Some(infix_parsefn) => {
                     left_expression = (infix_parsefn.apply)(self, left_expression)?;
                 }
@@ -306,6 +309,18 @@ impl Parser {
             ))),
             Some(unexpected_token) => Err(ParserError::UnexpectedToken {
                 expected: Token::Number(0),
+                actual: unexpected_token.clone(),
+            }),
+            None => Err(ParserError::UnexpectedEof),
+        }
+    }
+
+    pub fn parse_boolean(&mut self) -> Result<Expression, ParserError> {
+        match &self.current_token {
+            Some(Token::True) => Ok(Expression::Boolean(Boolean::new(Token::True, true))),
+            Some(Token::False) => Ok(Expression::Boolean(Boolean::new(Token::False, false))),
+            Some(unexpected_token) => Err(ParserError::UnexpectedToken {
+                expected: Token::True,
                 actual: unexpected_token.clone(),
             }),
             None => Err(ParserError::UnexpectedEof),
@@ -459,6 +474,35 @@ mod tests {
                 Expression::Identifier(identifier) => {
                     assert_eq!(identifier.token, Token::Identifier("foobar".to_string()));
                     assert_eq!(identifier.value, "foobar".to_string());
+                }
+                _ => unreachable!(),
+            },
+            _ => panic!(
+                "Expected ExpressionStatement, but got {:?}",
+                program.statements.get(0)
+            ),
+        }
+    }
+
+    #[test]
+    fn test_bool() {
+        let input = "true;";
+        let lexer = Lexer::new(input.to_string());
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+
+        if program.statements.len() != 1 {
+            panic!(
+                "program does not contain 1 statements. got: {}, statements: {:?}",
+                program.statements.len(),
+                program.statements
+            )
+        }
+        match program.statements.get(0) {
+            Some(Statement::Expression(statement)) => match &statement.expression {
+                Expression::Boolean(boolean) => {
+                    assert_eq!(boolean.token, Token::True);
+                    assert!(boolean.value);
                 }
                 _ => unreachable!(),
             },

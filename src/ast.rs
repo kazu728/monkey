@@ -34,6 +34,7 @@ pub struct ExpressionStatement {
 pub enum Expression {
     Identifier(Identifier),
     NumberLiteral(NumberLiteral),
+    Boolean(Boolean),
     PrefixExpression(PrefixExpression),
     InfixExpression(InfixExpression),
     Todo,
@@ -60,6 +61,18 @@ pub struct NumberLiteral {
 impl NumberLiteral {
     pub fn new(token: Token, value: u64) -> NumberLiteral {
         NumberLiteral { token, value }
+    }
+}
+
+#[derive(Debug)]
+pub struct Boolean {
+    pub token: Token,
+    pub value: bool,
+}
+
+impl Boolean {
+    pub fn new(token: Token, value: bool) -> Boolean {
+        Boolean { token, value }
     }
 }
 
