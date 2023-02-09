@@ -391,6 +391,13 @@ mod tests {
 
     use super::Parser;
 
+    #[derive(Debug, PartialEq)]
+    enum Value {
+        Number(u64),
+        Boolean(bool),
+    }
+    use Value::*;
+
     #[test]
     fn test_let_statements() {
         let input = "
@@ -398,9 +405,7 @@ mod tests {
           let y = 10;
           let foobar = 838383;
         ";
-        let lexer = Lexer::new(input.to_string());
-        let mut parser = Parser::new(lexer);
-        let program = parser.parse_program();
+        let program = Parser::new(Lexer::new(input.to_string())).parse_program();
 
         if program.statements.len() != 3 {
             panic!(
@@ -431,9 +436,7 @@ mod tests {
           return 10;
           return 993322;
         ";
-        let lexer = Lexer::new(input.to_string());
-        let mut parser = Parser::new(lexer);
-        let program = parser.parse_program();
+        let program = Parser::new(Lexer::new(input.to_string())).parse_program();
 
         if program.statements.len() != 3 {
             panic!(
@@ -456,11 +459,7 @@ mod tests {
     #[test]
     fn test_identifier_expression() {
         let input = "foobar;";
-
-        let lexer = Lexer::new(input.to_string());
-        let mut parser = Parser::new(lexer);
-
-        let program = parser.parse_program();
+        let program = Parser::new(Lexer::new(input.to_string())).parse_program();
 
         if program.statements.len() != 1 {
             panic!(
@@ -487,9 +486,7 @@ mod tests {
     #[test]
     fn test_bool() {
         let input = "true;";
-        let lexer = Lexer::new(input.to_string());
-        let mut parser = Parser::new(lexer);
-        let program = parser.parse_program();
+        let program = Parser::new(Lexer::new(input.to_string())).parse_program();
 
         if program.statements.len() != 1 {
             panic!(
@@ -516,11 +513,7 @@ mod tests {
     #[test]
     fn test_number() {
         let input = "5;";
-
-        let lexer = Lexer::new(input.to_string());
-        let mut parser = Parser::new(lexer);
-
-        let program = parser.parse_program();
+        let program = Parser::new(Lexer::new(input.to_string())).parse_program();
 
         if program.statements.len() != 1 {
             panic!(
@@ -545,28 +538,30 @@ mod tests {
     }
     #[test]
     fn test_parsing_prefix_expressions() {
-        struct InputExpression {
+        struct PrefixInputExpression {
             input: String,
             operator: String,
-            value: u64,
+            value: Value,
         }
-        let prefix_expressions: Vec<InputExpression> = vec![
-            InputExpression {
-                input: "!5;".to_string(),
-                operator: "!".to_string(),
-                value: 5,
-            },
-            InputExpression {
-                input: "-15;".to_string(),
-                operator: "-".to_string(),
-                value: 15,
-            },
+
+        impl PrefixInputExpression {
+            pub fn new(input: &str, operator: &str, value: Value) -> Self {
+                Self {
+                    input: input.to_string(),
+                    operator: operator.to_string(),
+                    value,
+                }
+            }
+        }
+        let prefix_expressions: Vec<PrefixInputExpression> = vec![
+            PrefixInputExpression::new("!5;", "!", Number(5)),
+            PrefixInputExpression::new("-15;", "-", Number(15)),
+            PrefixInputExpression::new("!true;", "!", Boolean(true)),
+            PrefixInputExpression::new("!false;", "!", Boolean(false)),
         ];
 
         for prefix_expression in prefix_expressions {
-            let lexer = Lexer::new(prefix_expression.input);
-            let mut parser = Parser::new(lexer);
-            let program = parser.parse_program();
+            let program = Parser::new(Lexer::new(prefix_expression.input)).parse_program();
 
             if program.statements.len() != 1 {
                 panic!(
@@ -581,7 +576,10 @@ mod tests {
                         assert_eq!(expression.operator, prefix_expression.operator);
                         match &*expression.right {
                             Expression::NumberLiteral(number) => {
-                                assert_eq!(number.value, prefix_expression.value);
+                                assert_eq!(Number(number.value), prefix_expression.value);
+                            }
+                            Expression::Boolean(boolean) => {
+                                assert_eq!(Boolean(boolean.value), prefix_expression.value);
                             }
                             _ => unreachable!(),
                         }
@@ -598,67 +596,45 @@ mod tests {
 
     #[test]
     fn test_parsing_infix_expression() {
-        struct InputExpression {
+        #[derive(Debug)]
+        struct InfixInputExpression {
             input: String,
-            left_value: u64,
+            left_value: Value,
             operator: String,
-            right_value: u64,
+            right_value: Value,
         }
-        let infix_expressions: Vec<InputExpression> = vec![
-            InputExpression {
-                input: "5 + 5;".to_string(),
-                left_value: 5,
-                operator: "+".to_string(),
-                right_value: 5,
-            },
-            InputExpression {
-                input: "5 - 5;".to_string(),
-                left_value: 5,
-                operator: "-".to_string(),
-                right_value: 5,
-            },
-            InputExpression {
-                input: "5 * 5;".to_string(),
-                left_value: 5,
-                operator: "*".to_string(),
-                right_value: 5,
-            },
-            InputExpression {
-                input: "5 / 5;".to_string(),
-                left_value: 5,
-                operator: "/".to_string(),
-                right_value: 5,
-            },
-            InputExpression {
-                input: "5 > 5;".to_string(),
-                left_value: 5,
-                operator: ">".to_string(),
-                right_value: 5,
-            },
-            InputExpression {
-                input: "5 < 5;".to_string(),
-                left_value: 5,
-                operator: "<".to_string(),
-                right_value: 5,
-            },
-            InputExpression {
-                input: "5 == 5;".to_string(),
-                left_value: 5,
-                operator: "==".to_string(),
-                right_value: 5,
-            },
-            InputExpression {
-                input: "5 != 5;".to_string(),
-                left_value: 5,
-                operator: "!=".to_string(),
-                right_value: 5,
-            },
+        impl InfixInputExpression {
+            fn new(
+                input: &str,
+                left_value: Value,
+                operator: &str,
+                right_value: Value,
+            ) -> InfixInputExpression {
+                InfixInputExpression {
+                    input: input.to_string(),
+                    left_value,
+                    operator: operator.to_string(),
+                    right_value,
+                }
+            }
+        }
+
+        let infix_expressions: Vec<InfixInputExpression> = vec![
+            InfixInputExpression::new("5 + 5;", Number(5), "+", Number(5)),
+            InfixInputExpression::new("5 - 5;", Number(5), "-", Number(5)),
+            InfixInputExpression::new("5 * 5;", Number(5), "*", Number(5)),
+            InfixInputExpression::new("5 / 5;", Number(5), "/", Number(5)),
+            InfixInputExpression::new("5 > 5;", Number(5), ">", Number(5)),
+            InfixInputExpression::new("5 < 5;", Number(5), "<", Number(5)),
+            InfixInputExpression::new("5 == 5;", Number(5), "==", Number(5)),
+            InfixInputExpression::new("5 != 5;", Number(5), "!=", Number(5)),
+            InfixInputExpression::new("true == true;", Boolean(true), "==", Boolean(true)),
+            InfixInputExpression::new("true != false;", Boolean(true), "!=", Boolean(false)),
+            InfixInputExpression::new("false == false;", Boolean(false), "==", Boolean(false)),
         ];
 
         for infix_expression in infix_expressions {
-            let lexer = Lexer::new(infix_expression.input);
-            let mut parser = Parser::new(lexer);
-            let program = parser.parse_program();
+            let program = Parser::new(Lexer::new(infix_expression.input)).parse_program();
 
             if program.statements.len() != 1 {
                 panic!(
@@ -673,13 +649,19 @@ mod tests {
                         assert_eq!(expression.operator, infix_expression.operator);
                         match &*expression.left {
                             Expression::NumberLiteral(number) => {
-                                assert_eq!(number.value, infix_expression.left_value);
+                                assert_eq!(Number(number.value), infix_expression.left_value);
+                            }
+                            Expression::Boolean(boolean) => {
+                                assert_eq!(Boolean(boolean.value), infix_expression.left_value);
                             }
                             _ => unreachable!(),
                         }
                         match &*expression.right {
                             Expression::NumberLiteral(number) => {
-                                assert_eq!(number.value, infix_expression.right_value);
+                                assert_eq!(Number(number.value), infix_expression.right_value);
+                            }
+                            Expression::Boolean(boolean) => {
+                                assert_eq!(Boolean(boolean.value), infix_expression.right_value);
                             }
                             _ => unreachable!(),
                         }
