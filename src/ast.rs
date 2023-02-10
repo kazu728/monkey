@@ -31,12 +31,25 @@ pub struct ExpressionStatement {
 }
 
 #[derive(Debug)]
+pub struct BlockStatement {
+    pub token: Token,
+    pub statements: Vec<Statement>,
+}
+
+impl BlockStatement {
+    pub fn new(token: Token, statements: Vec<Statement>) -> BlockStatement {
+        BlockStatement { token, statements }
+    }
+}
+
+#[derive(Debug)]
 pub enum Expression {
     Identifier(Identifier),
     NumberLiteral(NumberLiteral),
     Boolean(Boolean),
     PrefixExpression(PrefixExpression),
     InfixExpression(InfixExpression),
+    IfExpression(IfExpression),
     Todo,
 }
 
@@ -113,6 +126,30 @@ impl InfixExpression {
             left: Box::new(left),
             operator,
             right: Box::new(right),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct IfExpression {
+    pub token: Token,
+    pub condition: Box<Expression>,
+    pub consequence: BlockStatement,
+    pub alternative: Option<BlockStatement>,
+}
+
+impl IfExpression {
+    pub fn new(
+        token: Token,
+        condition: Expression,
+        consequence: BlockStatement,
+        alternative: Option<BlockStatement>,
+    ) -> IfExpression {
+        IfExpression {
+            token,
+            condition: Box::new(condition),
+            consequence,
+            alternative,
         }
     }
 }

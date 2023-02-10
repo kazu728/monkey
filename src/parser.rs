@@ -1,6 +1,7 @@
 use super::ast::{
-    Boolean, Expression, ExpressionStatement, Identifier, InfixExpression, LetStatement,
-    NumberLiteral, PrefixExpression, Program, ReturnStatement, Statement,
+    BlockStatement, Boolean, Expression, ExpressionStatement, Identifier, IfExpression,
+    InfixExpression, LetStatement, NumberLiteral, PrefixExpression, Program, ReturnStatement,
+    Statement,
 };
 use super::lexer::{Lexer, Token};
 use std::collections::HashMap;
@@ -88,6 +89,8 @@ impl Parser {
         parser.register_prefix(Token::Minus, Parser::parse_prefix_expression);
         parser.register_prefix(Token::True, Parser::parse_boolean);
         parser.register_prefix(Token::False, Parser::parse_boolean);
+        parser.register_prefix(Token::LParen, Parser::parse_grouped_expression);
+        parser.register_prefix(Token::If, Parser::parse_if_expression);
         parser.register_infix(Token::Plus, Parser::parse_infix_expression);
         parser.register_infix(Token::Minus, Parser::parse_infix_expression);
         parser.register_infix(Token::Slash, Parser::parse_infix_expression);
@@ -137,6 +140,17 @@ impl Parser {
             .insert(token, InfixParsefn { apply: f });
     }
 
+    fn expect_token(&mut self, expected: Token) -> Result<(), ParserError> {
+        if self.peek_token.as_ref().unwrap() == &expected {
+            self.next_token();
+            Ok(())
+        } else {
+            Err(ParserError::UnexpectedToken {
+                expected,
+                actual: self.peek_token.clone().unwrap(),
+            })
+        }
+    }
     pub fn parse_program(&mut self) -> Program {
         let mut program = Program { statements: vec![] };
 
@@ -246,7 +260,9 @@ impl Parser {
 
         let expression = self.parse_expression(Precedence::Lowest)?;
 
-        self.skip_to_semicoron();
+        if self.peek_token == Some(Token::Semicolon) {
+            self.next_token();
+        }
 
         Ok(ExpressionStatement { token, expression })
     }
@@ -261,6 +277,7 @@ impl Parser {
                 Some(Token::False) => Token::False,
                 Some(Token::Bang) => Token::Bang,
                 Some(Token::Minus) => Token::Minus,
+                Some(Token::If) => Token::If,
                 _ => panic!("Unexpected token: {:?}", self.current_token),
             })
             .expect("Expression's parseFn is not registered")
@@ -349,6 +366,71 @@ impl Parser {
             }
             None => Err(ParserError::UnexpectedEof),
         }
+    }
+
+    pub fn parse_grouped_expression(&mut self) -> Result<Expression, ParserError> {
+        self.next_token();
+
+        let expression = self.parse_expression(Precedence::Lowest)?;
+
+        if !matches!(self.current_token, Some(Token::RParen)) {
+            return Err(ParserError::UnexpectedToken {
+                expected: Token::RParen,
+                actual: self.current_token.clone().unwrap(),
+            });
+        }
+
+        self.next_token();
+
+        Ok(expression)
+    }
+    pub fn parse_if_expression(&mut self) -> Result<Expression, ParserError> {
+        self.expect_token(Token::LParen)?;
+        self.next_token();
+
+        let confidtion = self.parse_expression(Precedence::Lowest)?;
+
+        self.expect_token(Token::RParen)?;
+        self.expect_token(Token::LBrace)?;
+
+        let consequence = self.parse_block_statement()?;
+
+        let alternative = match self.peek_token.as_ref() {
+            Some(Token::Else) => {
+                self.next_token();
+                self.next_token();
+
+                Some(self.parse_block_statement()?)
+            }
+            Some(_) => Err(ParserError::UnexpectedToken {
+                expected: Token::Else,
+                actual: self.peek_token.clone().unwrap(),
+            })?,
+            None => None,
+        };
+
+        Ok(Expression::IfExpression(IfExpression::new(
+            Token::If,
+            confidtion,
+            consequence,
+            alternative,
+        )))
+    }
+
+    fn parse_block_statement(&mut self) -> Result<BlockStatement, ParserError> {
+        let mut block = Vec::new();
+
+        self.next_token();
+
+        while !matches!(self.current_token, Some(Token::RBrace))
+            && !matches!(self.current_token, None)
+        {
+            let statement = self.parse_statement()?;
+            block.push(statement);
+            self.next_token();
+        }
+
+        Ok(BlockStatement::new(Token::LBrace, block))
     }
 
     pub fn parse_infix_expression(&mut self, left: Expression) -> Result<Expression, ParserError> {
@@ -676,6 +758,72 @@ mod tests {
                     program.statements.get(0)
                 ),
             }
+        }
+    }
+
+    #[test]
+    fn test_if_expression() {
+        let input = "if (x < y) { x } else { y }";
+
+        let program = Parser::new(Lexer::new(input.to_string())).parse_program();
+
+        if program.statements.len() != 1 {
+            panic!(
+                "program does not contain 1 statements. got: {}, statements: {:?}",
+                program.statements.len(),
+                program.statements
+            )
+        }
+
+        match program.statements.get(0) {
+            Some(Statement::Expression(statement)) => match &statement.expression {
+                Expression::IfExpression(if_expression) => {
+                    match &*if_expression.condition {
+                        Expression::InfixExpression(infix_expression) => {
+                            assert_eq!(infix_expression.operator, "<");
+                            match &*infix_expression.left {
+                                Expression::Identifier(identifier) => {
+                                    assert_eq!(identifier.value, "x");
+                                }
+                                _ => unreachable!(),
+                            }
+                            match &*infix_expression.right {
+                                Expression::Identifier(identifier) => {
+                                    assert_eq!(identifier.value, "y");
+                                }
+                                _ => unreachable!(),
+                            }
+                        }
+                        _ => unreachable!(),
+                    };
+                    match if_expression.consequence.statements.get(0) {
+                        Some(Statement::Expression(expression)) => match &expression.expression {
+                            Expression::Identifier(identifier) => {
+                                assert_eq!(identifier.value, "x");
+                            }
+                            _ => unreachable!(),
+                        },
+                        _ => unreachable!(),
+                    };
+                    match if_expression
+                        .alternative
+                        .as_ref()
+                        .unwrap()
+                        .statements
+                        .get(0)
+                    {
+                        Some(Statement::Expression(expression)) => match &expression.expression {
+                            Expression::Identifier(identifier) => {
+                                assert_eq!(identifier.value, "y");
+                            }
+                            _ => unreachable!(),
+                        },
+                        _ => unreachable!(),
+                    }
+                }
+                _ => unreachable!(),
+            },
+            _ => unreachable!(),
         }
     }
 }
