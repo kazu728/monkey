@@ -1,5 +1,6 @@
 use crate::lexer::Token;
 
+#[derive(Debug)]
 pub struct Program {
     pub statements: Vec<Statement>,
 }
