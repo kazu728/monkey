@@ -1,7 +1,7 @@
 use super::ast::{
-    BlockStatement, Boolean, Expression, ExpressionStatement, Identifier, IfExpression,
-    InfixExpression, LetStatement, NumberLiteral, PrefixExpression, Program, ReturnStatement,
-    Statement,
+    BlockStatement, Boolean, Expression, ExpressionStatement, FunctionLiteral, Identifier,
+    IfExpression, InfixExpression, LetStatement, NumberLiteral, PrefixExpression, Program,
+    ReturnStatement, Statement,
 };
 use super::lexer::{Lexer, Token};
 use std::collections::HashMap;
@@ -91,6 +91,7 @@ impl Parser {
         parser.register_prefix(Token::False, Parser::parse_boolean);
         parser.register_prefix(Token::LParen, Parser::parse_grouped_expression);
         parser.register_prefix(Token::If, Parser::parse_if_expression);
+        parser.register_prefix(Token::Fn, Parser::parse_function_literal);
         parser.register_infix(Token::Plus, Parser::parse_infix_expression);
         parser.register_infix(Token::Minus, Parser::parse_infix_expression);
         parser.register_infix(Token::Slash, Parser::parse_infix_expression);
@@ -278,6 +279,7 @@ impl Parser {
                 Some(Token::Bang) => Token::Bang,
                 Some(Token::Minus) => Token::Minus,
                 Some(Token::If) => Token::If,
+                Some(Token::Fn) => Token::Fn,
                 _ => panic!("Unexpected token: {:?}", self.current_token),
             })
             .expect("Expression's parseFn is not registered")
@@ -415,6 +417,65 @@ impl Parser {
             consequence,
             alternative,
         )))
+    }
+
+    pub fn parse_function_literal(&mut self) -> Result<Expression, ParserError> {
+        self.expect_token(Token::LParen)?;
+        let parameters = self.parse_function_parameters()?;
+
+        self.expect_token(Token::LBrace)?;
+        let body = self.parse_block_statement()?;
+
+        Ok(Expression::FunctionLiteral(FunctionLiteral::new(
+            Token::Fn,
+            parameters,
+            body,
+        )))
+    }
+
+    fn parse_function_parameters(&mut self) -> Result<Vec<Identifier>, ParserError> {
+        let mut idetifiers: Vec<Identifier> = Vec::new();
+
+        if matches!(self.peek_token, Some(Token::RParen)) {
+            self.next_token();
+            return Ok(idetifiers);
+        }
+
+        self.next_token();
+
+        let identifier = match &self.current_token {
+            Some(Token::Identifier(s)) => {
+                Identifier::new(Token::Identifier(s.to_string()), s.to_string())
+            }
+            Some(unexpected_token) => Err(ParserError::UnexpectedToken {
+                expected: Token::Identifier("Identifier".to_string()),
+                actual: unexpected_token.clone(),
+            })?,
+            None => Err(ParserError::UnexpectedEof)?,
+        };
+
+        idetifiers.push(identifier);
+
+        while matches!(self.peek_token, Some(Token::Comma)) {
+            self.next_token();
+            self.next_token();
+
+            let identifier = match &self.current_token {
+                Some(Token::Identifier(s)) => {
+                    Identifier::new(Token::Identifier(s.to_string()), s.to_string())
+                }
+                Some(unexpected_token) => Err(ParserError::UnexpectedToken {
+                    expected: Token::Identifier("Identifier".to_string()),
+                    actual: unexpected_token.clone(),
+                })?,
+                None => Err(ParserError::UnexpectedEof)?,
+            };
+
+            idetifiers.push(identifier);
+        }
+        self.expect_token(Token::RParen)?;
+
+        Ok(idetifiers)
     }
 
     fn parse_block_statement(&mut self) -> Result<BlockStatement, ParserError> {
@@ -824,6 +885,58 @@ mod tests {
                 _ => unreachable!(),
             },
             _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn test_function_literal_parsing() {
+        #[derive(PartialEq, Eq)]
+        struct FunctionLiteralInputExpression {
+            pub input: String,
+            pub expected_parameters: Vec<String>,
+        }
+
+        let inputs = vec![
+            FunctionLiteralInputExpression {
+                input: "fn() {}".to_string(),
+                expected_parameters: vec![],
+            },
+            FunctionLiteralInputExpression {
+                input: "fn(x) {}".to_string(),
+                expected_parameters: vec!["x".to_string()],
+            },
+            FunctionLiteralInputExpression {
+                input: "fn(x, y, z) {}".to_string(),
+                expected_parameters: vec!["x".to_string(), "y".to_string(), "z".to_string()],
+            },
+        ];
+
+        for input in inputs {
+            let program = Parser::new(Lexer::new(input.input)).parse_program();
+
+            if program.statements.len() != 1 {
+                panic!(
+                    "program does not contain 1 statements. got: {}, statements: {:?}",
+                    program.statements.len(),
+                    program.statements
+                )
+            }
+            match program.statements.get(0) {
+                Some(Statement::Expression(statement)) => match &statement.expression {
+                    Expression::FunctionLiteral(function_literal) => {
+                        assert_eq!(
+                            function_literal.parameters.len(),
+                            input.expected_parameters.len()
+                        );
+                        for (i, parameter) in function_literal.parameters.iter().enumerate() {
+                            assert_eq!(parameter.value, *input.expected_parameters.get(i).unwrap());
+                        }
+                        assert_eq!(function_literal.body.statements.len(), 0);
+                    }
+                    _ => unreachable!(),
+                },
+                _ => unreachable!(),
+            }
         }
     }
 }

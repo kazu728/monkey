@@ -50,6 +50,7 @@ pub enum Expression {
     PrefixExpression(PrefixExpression),
     InfixExpression(InfixExpression),
     IfExpression(IfExpression),
+    FunctionLiteral(FunctionLiteral),
     Todo,
 }
 
@@ -150,6 +151,23 @@ impl IfExpression {
             condition: Box::new(condition),
             consequence,
             alternative,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct FunctionLiteral {
+    pub token: Token,
+    pub parameters: Vec<Identifier>,
+    pub body: BlockStatement,
+}
+
+impl FunctionLiteral {
+    pub fn new(token: Token, parameters: Vec<Identifier>, body: BlockStatement) -> FunctionLiteral {
+        FunctionLiteral {
+            token,
+            parameters,
+            body,
         }
     }
 }
