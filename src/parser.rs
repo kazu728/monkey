@@ -1,7 +1,7 @@
 use super::ast::{
-    BlockStatement, Boolean, Expression, ExpressionStatement, FunctionLiteral, Identifier,
-    IfExpression, InfixExpression, LetStatement, NumberLiteral, PrefixExpression, Program,
-    ReturnStatement, Statement,
+    BlockStatement, Boolean, CallExpression, Expression, ExpressionStatement, FunctionLiteral,
+    Identifier, IfExpression, InfixExpression, LetStatement, NumberLiteral, PrefixExpression,
+    Program, ReturnStatement, Statement,
 };
 use super::lexer::{Lexer, Token};
 use std::collections::HashMap;
@@ -23,6 +23,7 @@ enum Precedence {
     Sum,
     Product,
     Prefix,
+    Call,
 }
 
 impl Precedence {
@@ -32,6 +33,7 @@ impl Precedence {
             Token::Lt | Token::Gt => Precedence::LessGreater,
             Token::Plus | Token::Minus => Precedence::Sum,
             Token::Slash | Token::Asterisk => Precedence::Product,
+            Token::LParen => Precedence::Call,
             _ => Precedence::Lowest,
         }
     }
@@ -100,6 +102,7 @@ impl Parser {
         parser.register_infix(Token::NotEq, Parser::parse_infix_expression);
         parser.register_infix(Token::Lt, Parser::parse_infix_expression);
         parser.register_infix(Token::Gt, Parser::parse_infix_expression);
+        parser.register_infix(Token::LParen, Parser::parse_call_expression);
 
         parser
     }
@@ -523,6 +526,39 @@ impl Parser {
             None => Err(ParserError::UnexpectedEof),
         }
     }
+
+    pub fn parse_call_expression(
+        &mut self,
+        function: Expression,
+    ) -> Result<Expression, ParserError> {
+        Ok(Expression::CallExpression(CallExpression::new(
+            self.current_token.clone().unwrap(),
+            function,
+            self.parse_call_arguments()?,
+        )))
+    }
+
+    fn parse_call_arguments(&mut self) -> Result<Vec<Expression>, ParserError> {
+        let mut args: Vec<Expression> = Vec::new();
+
+        if matches!(self.peek_token, Some(Token::RParen)) {
+            self.next_token();
+            return Ok(args);
+        }
+        self.next_token();
+
+        args.push(self.parse_expression(Precedence::Lowest)?);
+
+        while self.peek_token == Some(Token::Comma) {
+            self.next_token();
+            self.next_token();
+
+            args.push(self.parse_expression(Precedence::Lowest)?);
+        }
+
+        self.expect_token(Token::RParen)?;
+        Ok(args)
+    }
 }
 
 #[cfg(test)]
@@ -937,6 +973,78 @@ mod tests {
                 },
                 _ => unreachable!(),
             }
+        }
+    }
+
+    #[test]
+    fn test_call_expression_parsing() {
+        let input = "add(1, 2 * 3, 4 + 5);";
+        let program = Parser::new(Lexer::new(input.to_string())).parse_program();
+
+        if program.statements.len() != 1 {
+            panic!(
+                "program does not contain 1 statements. got: {}, statements: {:?}",
+                program.statements.len(),
+                program.statements
+            )
+        }
+
+        match program.statements.get(0).unwrap() {
+            Statement::Expression(statement) => match &statement.expression {
+                Expression::CallExpression(call_expression) => {
+                    match &*call_expression.function {
+                        Expression::Identifier(identifier) => {
+                            assert_eq!(identifier.value, "add");
+                        }
+                        _ => unreachable!(),
+                    }
+                    assert_eq!(call_expression.arguments.len(), 3);
+                    match call_expression.arguments.get(0).unwrap() {
+                        Expression::NumberLiteral(number) => {
+                            assert_eq!(number.value, 1);
+                        }
+                        _ => unreachable!(),
+                    }
+                    match call_expression.arguments.get(1).unwrap() {
+                        Expression::InfixExpression(infix_expression) => {
+                            assert_eq!(infix_expression.operator, "*");
+                            match &*infix_expression.left {
+                                Expression::NumberLiteral(number) => {
+                                    assert_eq!(number.value, 2);
+                                }
+                                _ => unreachable!(),
+                            }
+                            match &*infix_expression.right {
+                                Expression::NumberLiteral(number) => {
+                                    assert_eq!(number.value, 3);
+                                }
+                                _ => unreachable!(),
+                            }
+                        }
+                        _ => unreachable!(),
+                    }
+                    match call_expression.arguments.get(2).unwrap() {
+                        Expression::InfixExpression(infix_expression) => {
+                            assert_eq!(infix_expression.operator, "+");
+                            match &*infix_expression.left {
+                                Expression::NumberLiteral(number) => {
+                                    assert_eq!(number.value, 4);
+                                }
+                                _ => unreachable!(),
+                            }
+                            match &*infix_expression.right {
+                                Expression::NumberLiteral(number) => {
+                                    assert_eq!(number.value, 5);
+                                }
+                                _ => unreachable!(),
+                            }
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+                _ => unreachable!(),
+            },
+            _ => unreachable!(),
         }
     }
 }

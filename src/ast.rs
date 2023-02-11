@@ -51,6 +51,7 @@ pub enum Expression {
     InfixExpression(InfixExpression),
     IfExpression(IfExpression),
     FunctionLiteral(FunctionLiteral),
+    CallExpression(CallExpression),
     Todo,
 }
 
@@ -168,6 +169,23 @@ impl FunctionLiteral {
             token,
             parameters,
             body,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct CallExpression {
+    pub token: Token,
+    pub function: Box<Expression>,
+    pub arguments: Vec<Expression>,
+}
+
+impl CallExpression {
+    pub fn new(token: Token, function: Expression, arguments: Vec<Expression>) -> CallExpression {
+        CallExpression {
+            token,
+            function: Box::new(function),
+            arguments,
         }
     }
 }
