@@ -374,7 +374,7 @@ impl Parser {
 
         let expression = self.parse_expression(Precedence::Lowest)?;
 
-        if !matches!(self.current_token, Some(Token::RParen)) {
+        if self.current_token == Some(Token::RParen) {
             return Err(ParserError::UnexpectedToken {
                 expected: Token::RParen,
                 actual: self.current_token.clone().unwrap(),
@@ -435,7 +435,7 @@ impl Parser {
     fn parse_function_parameters(&mut self) -> Result<Vec<Identifier>, ParserError> {
         let mut idetifiers: Vec<Identifier> = Vec::new();
 
-        if matches!(self.peek_token, Some(Token::RParen)) {
+        if self.peek_token == Some(Token::RParen) {
             self.next_token();
             return Ok(idetifiers);
         }
@@ -455,7 +455,7 @@ impl Parser {
 
         idetifiers.push(identifier);
 
-        while matches!(self.peek_token, Some(Token::Comma)) {
+        while self.peek_token == Some(Token::Comma) {
             self.next_token();
             self.next_token();
 
@@ -482,9 +482,7 @@ impl Parser {
 
         self.next_token();
 
-        while !matches!(self.current_token, Some(Token::RBrace))
-            && !matches!(self.current_token, None)
-        {
+        while self.current_token != Some(Token::RBrace) {
             let statement = self.parse_statement()?;
             block.push(statement);
             self.next_token();
@@ -537,7 +535,7 @@ impl Parser {
     fn parse_call_arguments(&mut self) -> Result<Vec<Expression>, ParserError> {
         let mut args: Vec<Expression> = Vec::new();
 
-        if matches!(self.peek_token, Some(Token::RParen)) {
+        if self.peek_token == Some(Token::RParen) {
             self.next_token();
             return Ok(args);
         }
@@ -560,7 +558,7 @@ impl Parser {
 #[cfg(test)]
 mod tests {
     use crate::{
-        ast::{Expression, Statement},
+        ast::{Expression, Program, Statement},
         lexer::*,
     };
 
@@ -573,6 +571,17 @@ mod tests {
     }
     use Value::*;
 
+    fn expect_statement_len(program: &Program, expected: usize) {
+        if program.statements.len() != expected {
+            panic!(
+                "program does not contain {} statements. got: {}, statements: {:?}",
+                expected,
+                program.statements.len(),
+                program.statements
+            )
+        }
+    }
+
     #[test]
     fn test_let_statements() {
         let input = "
@@ -582,13 +591,8 @@ mod tests {
         ";
         let program = Parser::new(Lexer::new(input.to_string())).parse_program();
 
-        if program.statements.len() != 3 {
-            panic!(
-                "program does not contain 3 statements. got: {}, statements: {:?}",
-                program.statements.len(),
-                program.statements
-            )
-        }
+        expect_statement_len(&program, 3);
+
         let expected_identifiers = vec!["x", "y", "foobar"];
 
         for (i, statement) in program.statements.into_iter().enumerate() {
@@ -599,7 +603,7 @@ mod tests {
                     assert_eq!(statement.token, Token::Let);
                     assert_eq!(statement.name.value, identifier.to_string());
                 }
-                _ => unreachable!(),
+                _ => panic!("statement is not a let statement"),
             }
         }
     }
@@ -613,43 +617,30 @@ mod tests {
         ";
         let program = Parser::new(Lexer::new(input.to_string())).parse_program();
 
-        if program.statements.len() != 3 {
-            panic!(
-                "program does not contain 3 statements. got: {}, statements: {:?}",
-                program.statements.len(),
-                program.statements
-            )
-        }
+        expect_statement_len(&program, 3);
 
         for statement in program.statements {
             match statement {
-                Statement::Return(statement) => {
-                    assert_eq!(statement.token, Token::Return);
-                }
-                _ => unreachable!(),
+                Statement::Return(statement) => assert_eq!(statement.token, Token::Return),
+                _ => panic!("statement is not a return statement"),
             }
         }
     }
 
     #[test]
     fn test_identifier_expression() {
-        let input = "foobar;";
-        let program = Parser::new(Lexer::new(input.to_string())).parse_program();
+        let input = "foobar;".to_string();
+        let program = Parser::new(Lexer::new(input)).parse_program();
 
-        if program.statements.len() != 1 {
-            panic!(
-                "program does not contain 1 statements. got: {}, statements: {:?}",
-                program.statements.len(),
-                program.statements
-            )
-        }
+        expect_statement_len(&program, 1);
+
         match program.statements.get(0) {
             Some(Statement::Expression(statement)) => match &statement.expression {
                 Expression::Identifier(identifier) => {
                     assert_eq!(identifier.token, Token::Identifier("foobar".to_string()));
                     assert_eq!(identifier.value, "foobar".to_string());
                 }
-                _ => unreachable!(),
+                _ => panic!("Expected Identifier, but got {:?}", statement.expression),
             },
             _ => panic!(
                 "Expected ExpressionStatement, but got {:?}",
@@ -663,20 +654,15 @@ mod tests {
         let input = "true;";
         let program = Parser::new(Lexer::new(input.to_string())).parse_program();
 
-        if program.statements.len() != 1 {
-            panic!(
-                "program does not contain 1 statements. got: {}, statements: {:?}",
-                program.statements.len(),
-                program.statements
-            )
-        }
+        expect_statement_len(&program, 1);
+
         match program.statements.get(0) {
             Some(Statement::Expression(statement)) => match &statement.expression {
                 Expression::Boolean(boolean) => {
                     assert_eq!(boolean.token, Token::True);
                     assert!(boolean.value);
                 }
-                _ => unreachable!(),
+                _ => panic!("Expected Boolean, but got {:?}", statement.expression),
             },
             _ => panic!(
                 "Expected ExpressionStatement, but got {:?}",
@@ -690,20 +676,15 @@ mod tests {
         let input = "5;";
         let program = Parser::new(Lexer::new(input.to_string())).parse_program();
 
-        if program.statements.len() != 1 {
-            panic!(
-                "program does not contain 1 statements. got: {}, statements: {:?}",
-                program.statements.len(),
-                program.statements
-            )
-        }
+        expect_statement_len(&program, 1);
+
         match program.statements.get(0) {
             Some(Statement::Expression(statement)) => match &statement.expression {
                 Expression::NumberLiteral(number) => {
                     assert_eq!(number.token, Token::Number(5));
                     assert_eq!(number.value, 5);
                 }
-                _ => unreachable!(),
+                _ => panic!("Expected Number, but got {:?}", statement.expression),
             },
             _ => panic!(
                 "Expected ExpressionStatement, but got {:?}",
@@ -738,28 +719,29 @@ mod tests {
         for prefix_expression in prefix_expressions {
             let program = Parser::new(Lexer::new(prefix_expression.input)).parse_program();
 
-            if program.statements.len() != 1 {
-                panic!(
-                    "program does not contain 1 statements. got: {}, statements: {:?}",
-                    program.statements.len(),
-                    program.statements
-                )
-            }
+            expect_statement_len(&program, 1);
+
             match program.statements.get(0) {
                 Some(Statement::Expression(statement)) => match &statement.expression {
                     Expression::PrefixExpression(expression) => {
                         assert_eq!(expression.operator, prefix_expression.operator);
                         match &*expression.right {
                             Expression::NumberLiteral(number) => {
-                                assert_eq!(Number(number.value), prefix_expression.value);
+                                assert_eq!(Number(number.value), prefix_expression.value)
                             }
                             Expression::Boolean(boolean) => {
                                 assert_eq!(Boolean(boolean.value), prefix_expression.value);
                             }
-                            _ => unreachable!(),
+                            _ => panic!(
+                                "Expected NumberLiteral or Boolean, but got {:?}",
+                                expression.right
+                            ),
                         }
                     }
-                    _ => unreachable!(),
+                    _ => panic!(
+                        "Expected PrefixExpression, but got {:?}",
+                        statement.expression
+                    ),
                 },
                 _ => panic!(
                     "Expected ExpressionStatement, but got {:?}",
@@ -774,22 +756,17 @@ mod tests {
         #[derive(Debug)]
         struct InfixInputExpression {
             input: String,
-            left_value: Value,
+            left: Value,
             operator: String,
-            right_value: Value,
+            right: Value,
         }
         impl InfixInputExpression {
-            fn new(
-                input: &str,
-                left_value: Value,
-                operator: &str,
-                right_value: Value,
-            ) -> InfixInputExpression {
+            fn new(input: &str, left: Value, operator: &str, right: Value) -> InfixInputExpression {
                 InfixInputExpression {
                     input: input.to_string(),
-                    left_value,
+                    left,
                     operator: operator.to_string(),
-                    right_value,
+                    right,
                 }
             }
         }
@@ -811,34 +788,35 @@ mod tests {
         for infix_expression in infix_expressions {
             let program = Parser::new(Lexer::new(infix_expression.input)).parse_program();
 
-            if program.statements.len() != 1 {
-                panic!(
-                    "program does not contain 1 statements. got: {}, statements: {:?}",
-                    program.statements.len(),
-                    program.statements
-                )
-            }
+            expect_statement_len(&program, 1);
+
             match program.statements.get(0) {
                 Some(Statement::Expression(statement)) => match &statement.expression {
                     Expression::InfixExpression(expression) => {
                         assert_eq!(expression.operator, infix_expression.operator);
                         match &*expression.left {
                             Expression::NumberLiteral(number) => {
-                                assert_eq!(Number(number.value), infix_expression.left_value);
+                                assert_eq!(Number(number.value), infix_expression.left);
                             }
                             Expression::Boolean(boolean) => {
-                                assert_eq!(Boolean(boolean.value), infix_expression.left_value);
+                                assert_eq!(Boolean(boolean.value), infix_expression.left);
                             }
-                            _ => unreachable!(),
+                            _ => panic!(
+                                "Expected NumberLiteral or Boolean, but got {:?}",
+                                expression.left
+                            ),
                         }
                         match &*expression.right {
                             Expression::NumberLiteral(number) => {
-                                assert_eq!(Number(number.value), infix_expression.right_value);
+                                assert_eq!(Number(number.value), infix_expression.right);
                             }
                             Expression::Boolean(boolean) => {
-                                assert_eq!(Boolean(boolean.value), infix_expression.right_value);
+                                assert_eq!(Boolean(boolean.value), infix_expression.right);
                             }
-                            _ => unreachable!(),
+                            _ => panic!(
+                                "Expected NumberLiteral or Boolean, but got {:?}",
+                                expression.right
+                            ),
                         }
                     }
                     _ => panic!(
@@ -860,13 +838,7 @@ mod tests {
 
         let program = Parser::new(Lexer::new(input.to_string())).parse_program();
 
-        if program.statements.len() != 1 {
-            panic!(
-                "program does not contain 1 statements. got: {}, statements: {:?}",
-                program.statements.len(),
-                program.statements
-            )
-        }
+        expect_statement_len(&program, 1);
 
         match program.statements.get(0) {
             Some(Statement::Expression(statement)) => match &statement.expression {
@@ -874,29 +846,43 @@ mod tests {
                     match &*if_expression.condition {
                         Expression::InfixExpression(infix_expression) => {
                             assert_eq!(infix_expression.operator, "<");
+
                             match &*infix_expression.left {
                                 Expression::Identifier(identifier) => {
-                                    assert_eq!(identifier.value, "x");
+                                    assert_eq!(identifier.value, "x")
                                 }
-                                _ => unreachable!(),
+                                _ => panic!(
+                                    "Expected Identifier, but got {:?}",
+                                    infix_expression.left
+                                ),
                             }
                             match &*infix_expression.right {
                                 Expression::Identifier(identifier) => {
                                     assert_eq!(identifier.value, "y");
                                 }
-                                _ => unreachable!(),
+                                _ => panic!(
+                                    "Expected Identifier, but got {:?}",
+                                    infix_expression.right
+                                ),
                             }
                         }
-                        _ => unreachable!(),
+                        _ => panic!(
+                            "Expected InfixExpression, but got {:?}",
+                            if_expression.condition
+                        ),
                     };
                     match if_expression.consequence.statements.get(0) {
                         Some(Statement::Expression(expression)) => match &expression.expression {
-                            Expression::Identifier(identifier) => {
-                                assert_eq!(identifier.value, "x");
-                            }
-                            _ => unreachable!(),
+                            Expression::Identifier(identifier) => assert_eq!(identifier.value, "x"),
+                            _ => panic!(
+                                "Expected Identifier, but got {:?}",
+                                if_expression.consequence.statements.get(0)
+                            ),
                         },
-                        _ => unreachable!(),
+                        _ => panic!(
+                            "Expected ExpressionStatement, but got {:?}",
+                            if_expression.consequence.statements.get(0)
+                        ),
                     };
                     match if_expression
                         .alternative
@@ -909,14 +895,33 @@ mod tests {
                             Expression::Identifier(identifier) => {
                                 assert_eq!(identifier.value, "y");
                             }
-                            _ => unreachable!(),
+                            _ => panic!(
+                                "Expected Identifier, but got {:?}",
+                                if_expression
+                                    .alternative
+                                    .as_ref()
+                                    .unwrap()
+                                    .statements
+                                    .get(0)
+                            ),
                         },
-                        _ => unreachable!(),
+                        _ => panic!(
+                            "Expected ExpressionStatement, but got {:?}",
+                            if_expression
+                                .alternative
+                                .as_ref()
+                                .unwrap()
+                                .statements
+                                .get(0)
+                        ),
                     }
                 }
-                _ => unreachable!(),
+                _ => panic!("Expected IfExpression, but got {:?}", statement.expression),
             },
-            _ => unreachable!(),
+            _ => panic!(
+                "Expected ExpressionStatement, but got {:?}",
+                program.statements.get(0)
+            ),
         }
     }
 
@@ -946,13 +951,8 @@ mod tests {
         for input in inputs {
             let program = Parser::new(Lexer::new(input.input)).parse_program();
 
-            if program.statements.len() != 1 {
-                panic!(
-                    "program does not contain 1 statements. got: {}, statements: {:?}",
-                    program.statements.len(),
-                    program.statements
-                )
-            }
+            expect_statement_len(&program, 1);
+
             match program.statements.get(0) {
                 Some(Statement::Expression(statement)) => match &statement.expression {
                     Expression::FunctionLiteral(function_literal) => {
@@ -965,9 +965,15 @@ mod tests {
                         }
                         assert_eq!(function_literal.body.statements.len(), 0);
                     }
-                    _ => unreachable!(),
+                    _ => panic!(
+                        "Expected FunctionLiteral, but got {:?}",
+                        statement.expression
+                    ),
                 },
-                _ => unreachable!(),
+                _ => panic!(
+                    "Expected ExpressionStatement, but got {:?}",
+                    program.statements.get(0)
+                ),
             }
         }
     }
@@ -977,13 +983,7 @@ mod tests {
         let input = "add(1, 2 * 3, 4 + 5);";
         let program = Parser::new(Lexer::new(input.to_string())).parse_program();
 
-        if program.statements.len() != 1 {
-            panic!(
-                "program does not contain 1 statements. got: {}, statements: {:?}",
-                program.statements.len(),
-                program.statements
-            )
-        }
+        expect_statement_len(&program, 1);
 
         match program.statements.get(0).unwrap() {
             Statement::Expression(statement) => match &statement.expression {
@@ -992,14 +992,20 @@ mod tests {
                         Expression::Identifier(identifier) => {
                             assert_eq!(identifier.value, "add");
                         }
-                        _ => unreachable!(),
+                        _ => panic!(
+                            "Expected Identifier, but got {:?}",
+                            call_expression.function
+                        ),
                     }
                     assert_eq!(call_expression.arguments.len(), 3);
                     match call_expression.arguments.get(0).unwrap() {
                         Expression::NumberLiteral(number) => {
                             assert_eq!(number.value, 1);
                         }
-                        _ => unreachable!(),
+                        _ => panic!(
+                            "Expected NumberLiteral, but got {:?}",
+                            call_expression.arguments.get(0)
+                        ),
                     }
                     match call_expression.arguments.get(1).unwrap() {
                         Expression::InfixExpression(infix_expression) => {
@@ -1008,16 +1014,25 @@ mod tests {
                                 Expression::NumberLiteral(number) => {
                                     assert_eq!(number.value, 2);
                                 }
-                                _ => unreachable!(),
+                                _ => panic!(
+                                    "Expected NumberLiteral, but got {:?}",
+                                    infix_expression.left
+                                ),
                             }
                             match &*infix_expression.right {
                                 Expression::NumberLiteral(number) => {
                                     assert_eq!(number.value, 3);
                                 }
-                                _ => unreachable!(),
+                                _ => panic!(
+                                    "Expected NumberLiteral, but got {:?}",
+                                    infix_expression.right
+                                ),
                             }
                         }
-                        _ => unreachable!(),
+                        _ => panic!(
+                            "Expected InfixExpression, but got {:?}",
+                            call_expression.arguments.get(1)
+                        ),
                     }
                     match call_expression.arguments.get(2).unwrap() {
                         Expression::InfixExpression(infix_expression) => {
@@ -1026,21 +1041,36 @@ mod tests {
                                 Expression::NumberLiteral(number) => {
                                     assert_eq!(number.value, 4);
                                 }
-                                _ => unreachable!(),
+                                _ => panic!(
+                                    "Expected NumberLiteral, but got {:?}",
+                                    infix_expression.left
+                                ),
                             }
                             match &*infix_expression.right {
                                 Expression::NumberLiteral(number) => {
                                     assert_eq!(number.value, 5);
                                 }
-                                _ => unreachable!(),
+                                _ => panic!(
+                                    "Expected NumberLiteral, but got {:?}",
+                                    infix_expression.right
+                                ),
                             }
                         }
-                        _ => unreachable!(),
+                        _ => panic!(
+                            "Expected InfixExpression, but got {:?}",
+                            call_expression.arguments.get(2)
+                        ),
                     }
                 }
-                _ => unreachable!(),
+                _ => panic!(
+                    "Expected CallExpression, but got {:?}",
+                    statement.expression
+                ),
             },
-            _ => unreachable!(),
+            _ => panic!(
+                "Expected ExpressionStatement, but got {:?}",
+                program.statements.get(0)
+            ),
         }
     }
 }
