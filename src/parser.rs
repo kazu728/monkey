@@ -211,32 +211,22 @@ impl Parser {
         match maybe_identifier_token {
             Token::Identifier(s) => {
                 let identifier = Identifier::new(maybe_identifier_token.clone(), s.to_string());
+
+                self.next_token();
+                self.expect_token(Token::Assign)?;
                 self.next_token();
 
-                let maybe_assign_token =
-                    self.peek_token
-                        .as_ref()
-                        .ok_or(ParserError::UnexpectedToken {
-                            expected: Token::Assign,
-                            actual: Token::Eof,
-                        })?;
+                let value = self.parse_expression(Precedence::Lowest)?;
 
-                match maybe_assign_token {
-                    Token::Assign => {
-                        self.next_token();
-                        self.skip_to_semicoron();
+                if self.peek_token == Some(Token::Semicolon) {
+                    self.next_token();
+                };
 
-                        Ok(LetStatement {
-                            token: Token::Let,
-                            name: identifier,
-                            value: Expression::Todo,
-                        })
-                    }
-                    _ => Err(ParserError::UnexpectedToken {
-                        expected: Token::Assign,
-                        actual: maybe_assign_token.clone(),
-                    }),
-                }
+                Ok(LetStatement {
+                    token: Token::Let,
+                    name: identifier,
+                    value,
+                })
             }
             _ => Err(ParserError::UnexpectedToken {
                 expected: Token::Identifier("${IDENTIFIER}".to_string()),
@@ -248,11 +238,17 @@ impl Parser {
     fn parse_return_statement(&mut self) -> Result<ReturnStatement, ParserError> {
         let token = self.current_token.clone().unwrap();
 
-        self.skip_to_semicoron();
+        self.next_token();
+
+        let return_value = self.parse_expression(Precedence::Lowest).unwrap();
+
+        if self.peek_token == Some(Token::Semicolon) {
+            self.next_token();
+        }
 
         Ok(ReturnStatement {
             token,
-            return_value: Expression::Todo,
+            return_value,
         })
     }
 

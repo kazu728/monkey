@@ -52,7 +52,6 @@ pub enum Expression {
     IfExpression(IfExpression),
     FunctionLiteral(FunctionLiteral),
     CallExpression(CallExpression),
-    Todo,
 }
 
 #[derive(Debug)]
