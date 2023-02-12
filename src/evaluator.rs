@@ -21,6 +21,7 @@ fn evaluate_statement(statement: Statement) -> Object {
 fn evaluate_expression(expression_statement: ExpressionStatement) -> Object {
     match expression_statement.expression {
         Expression::NumberLiteral(integer_literal) => Object::Integer(integer_literal.value),
+        Expression::Boolean(boolean) => boolean.value.into(),
         _ => panic!(
             "expression is not IntegerLiteral. got={:?}",
             expression_statement.expression
@@ -54,6 +55,19 @@ mod tests {
         for case in input {
             let evaluated = test_eval(case.0.to_string());
             test_integer_object(evaluated, case.1);
+        }
+    }
+
+    #[test]
+    fn test_boolean_exporession() {
+        let input = vec![("true", true), ("false", false)];
+
+        for case in input {
+            let evaluated = test_eval(case.0.to_string());
+            match evaluated {
+                Object::Bool(val) => assert_eq!(val, case.1),
+                _ => panic!("object is not Boolean. got={:?}", evaluated),
+            }
         }
     }
 }

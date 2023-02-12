@@ -16,3 +16,16 @@ impl fmt::Display for Object {
         }
     }
 }
+
+const OBJECT_TRUE: Object = Object::Bool(true);
+const OBJECT_FALSE: Object = Object::Bool(false);
+
+impl From<bool> for Object {
+    fn from(b: bool) -> Self {
+        if b {
+            OBJECT_TRUE
+        } else {
+            OBJECT_FALSE
+        }
+    }
+}
