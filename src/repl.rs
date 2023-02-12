@@ -1,6 +1,6 @@
 use std::io;
 
-use crate::{lexer::Lexer, parser::Parser};
+use crate::{evaluator::eval, lexer::Lexer, parser::Parser};
 
 const PROMPT: &str = "λ ";
 
@@ -19,8 +19,9 @@ pub fn start() {
         prompt(PROMPT).unwrap();
         if let Some(Ok(line)) = lines.next() {
             let program = Parser::new(Lexer::new(line)).parse_program();
+            let evaluated = eval(program);
 
-            println!("{:?}", program);
+            println!("{}", evaluated);
         } else {
             break;
         }
