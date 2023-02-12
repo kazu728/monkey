@@ -6,7 +6,7 @@ pub enum Token {
     Eof,
 
     Identifier(String),
-    Number(u64),
+    Number(i64),
 
     Assign,
     Plus,

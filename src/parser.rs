@@ -566,7 +566,7 @@ mod tests {
 
     #[derive(Debug, PartialEq)]
     enum Value {
-        Number(u64),
+        Number(i64),
         Boolean(bool),
     }
     use Value::*;

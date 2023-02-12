@@ -70,11 +70,11 @@ impl Identifier {
 #[derive(Debug)]
 pub struct NumberLiteral {
     pub token: Token,
-    pub value: u64,
+    pub value: i64,
 }
 
 impl NumberLiteral {
-    pub fn new(token: Token, value: u64) -> NumberLiteral {
+    pub fn new(token: Token, value: i64) -> NumberLiteral {
         NumberLiteral { token, value }
     }
 }
