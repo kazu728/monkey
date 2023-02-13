@@ -1,9 +1,7 @@
-use crate::{
-    ast::{Expression, InfixExpression, PrefixExpression, Program, Statement},
-    object::OBJECT_NULL,
+use super::ast::{
+    BlockStatement, Expression, IfExpression, InfixExpression, PrefixExpression, Program, Statement,
 };
-
-use super::object::Object;
+use super::object::{Object, OBJECT_NULL};
 
 pub fn eval(program: Program) -> Object {
     let mut obj = Object::Null;
@@ -23,6 +21,14 @@ fn evaluate_statement(statement: Statement) -> Object {
     }
 }
 
+fn evaluate_block_statement(block_statement: BlockStatement) -> Object {
+    let mut obj = Object::Null;
+    for stmt in block_statement.statements {
+        obj = evaluate_statement(stmt);
+    }
+    obj
+}
+
 fn evaluate_expression(expression: Expression) -> Object {
     match expression {
         Expression::NumberLiteral(integer_literal) => Object::Integer(integer_literal.value),
@@ -33,6 +39,7 @@ fn evaluate_expression(expression: Expression) -> Object {
         Expression::InfixExpression(infix_expression) => {
             evaluate_infix_expression(infix_expression)
         }
+        Expression::IfExpression(if_expression) => evaluate_if_expression(if_expression),
         _ => panic!("Unexpected expression. got={:?}", expression),
     }
 }
@@ -79,8 +86,31 @@ fn evaluate_infix_expression(infix_expression: InfixExpression) -> Object {
     }
 }
 
+fn evaluate_if_expression(if_expression: IfExpression) -> Object {
+    let condition = evaluate_expression(*if_expression.condition);
+
+    if is_truthy(condition) {
+        evaluate_block_statement(if_expression.consequence)
+    } else if let Some(alternative) = if_expression.alternative {
+        evaluate_block_statement(alternative)
+    } else {
+        OBJECT_NULL
+    }
+}
+
+fn is_truthy(object: Object) -> bool {
+    match object {
+        Object::Bool(val) => val,
+        Object::Integer(val) => val != 0,
+        Object::Null => false,
+        _ => true,
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::vec;
+
     use crate::{lexer::Lexer, object::Object, parser::Parser};
 
     use super::eval;
@@ -182,6 +212,46 @@ mod tests {
             match evaluated {
                 Object::Bool(val) => assert_eq!(val, case.expected),
                 _ => panic!("object is not Boolean. got={:?}", evaluated),
+            }
+        }
+    }
+
+    #[test]
+    fn test_if_expressions() {
+        struct Input {
+            input: String,
+            expected: Object,
+        }
+        impl Input {
+            pub fn new(input: &str, expected: Object) -> Self {
+                Input {
+                    input: input.to_string(),
+                    expected,
+                }
+            }
+        }
+        let cases = vec![
+            Input::new("if (true) { 10 }", Object::Integer(10)),
+            Input::new("if (false) { 10 }", Object::Null),
+            Input::new("if (1) { 10 }", Object::Integer(10)),
+            Input::new("if (1 < 2) { 10 }", Object::Integer(10)),
+            Input::new("if (1 > 2) { 10 }", Object::Null),
+            Input::new("if (1 > 2) { 10 } else { 20 }", Object::Integer(20)),
+            Input::new("if (1 < 2) { 10 } else { 20 }", Object::Integer(10)),
+        ];
+
+        for case in cases {
+            let evaluated = test_eval(case.input);
+            match evaluated {
+                Object::Integer(val) => match case.expected {
+                    Object::Integer(expected) => assert_eq!(val, expected),
+                    _ => panic!("object is not Integer. got={:?}", evaluated),
+                },
+                Object::Null => match case.expected {
+                    Object::Null => assert!(true),
+                    _ => panic!("object is not Null. got={:?}", evaluated),
+                },
+                _ => panic!("object is not Integer. got={:?}", evaluated),
             }
         }
     }
