@@ -1,4 +1,7 @@
-use crate::ast::{Expression, ExpressionStatement, Program, Statement};
+use crate::{
+    ast::{Expression, PrefixExpression, Program, Statement},
+    object::OBJECT_NULL,
+};
 
 use super::object::Object;
 
@@ -13,19 +16,38 @@ pub fn eval(program: Program) -> Object {
 
 fn evaluate_statement(statement: Statement) -> Object {
     match statement {
-        Statement::Expression(expression_statement) => evaluate_expression(expression_statement),
+        Statement::Expression(expression_statement) => {
+            evaluate_expression(expression_statement.expression)
+        }
         _ => panic!("statement is not ExpressionStatement. got={:?}", statement),
     }
 }
 
-fn evaluate_expression(expression_statement: ExpressionStatement) -> Object {
-    match expression_statement.expression {
+fn evaluate_expression(expression: Expression) -> Object {
+    match expression {
         Expression::NumberLiteral(integer_literal) => Object::Integer(integer_literal.value),
         Expression::Boolean(boolean) => boolean.value.into(),
-        _ => panic!(
-            "expression is not IntegerLiteral. got={:?}",
-            expression_statement.expression
-        ),
+        Expression::PrefixExpression(prefix_expression) => {
+            evaluate_prefix_expression(prefix_expression)
+        }
+        _ => panic!("Unexpected expression. got={:?}", expression),
+    }
+}
+
+fn evaluate_prefix_expression(prefix_expression: PrefixExpression) -> Object {
+    let right = evaluate_expression(*prefix_expression.right);
+
+    match prefix_expression.operator.as_str() {
+        "!" => match right {
+            Object::Bool(val) => Object::Bool(!val),
+            Object::Integer(val) => Object::Bool(val == 0),
+            _ => OBJECT_NULL,
+        },
+        "-" => match right {
+            Object::Integer(val) => Object::Integer(-val),
+            _ => OBJECT_NULL,
+        },
+        _ => OBJECT_NULL,
     }
 }
 
@@ -41,20 +63,16 @@ mod tests {
         eval(program)
     }
 
-    fn test_integer_object(obj: Object, expected: i64) {
-        match obj {
-            Object::Integer(val) => assert_eq!(val, expected),
-            _ => panic!("object is not Integer. got={:?}", obj),
-        }
-    }
-
     #[test]
     fn test_eval_integer_expression() {
-        let input = vec![("5", 5), ("10", 10)];
+        let input = vec![("5", 5), ("10", 10), ("-5", -5), ("-10", -10)];
 
         for case in input {
             let evaluated = test_eval(case.0.to_string());
-            test_integer_object(evaluated, case.1);
+            match evaluated {
+                Object::Integer(val) => assert_eq!(val, case.1),
+                _ => panic!("object is not Integer. got={:?}", evaluated),
+            };
         }
     }
 
@@ -66,6 +84,39 @@ mod tests {
             let evaluated = test_eval(case.0.to_string());
             match evaluated {
                 Object::Bool(val) => assert_eq!(val, case.1),
+                _ => panic!("object is not Boolean. got={:?}", evaluated),
+            }
+        }
+    }
+
+    #[test]
+    fn test_bang_operator() {
+        struct Test {
+            input: String,
+            expected: bool,
+        }
+        impl Test {
+            pub fn new(input: &str, expected: bool) -> Self {
+                Self {
+                    input: input.to_string(),
+                    expected,
+                }
+            }
+        }
+
+        let cases = vec![
+            Test::new("!true", false),
+            Test::new("!false", true),
+            Test::new("!5", false),
+            Test::new("!!true", true),
+            Test::new("!!false", false),
+            Test::new("!!5", true),
+        ];
+
+        for case in cases {
+            let evaluated = test_eval(case.input);
+            match evaluated {
+                Object::Bool(val) => assert_eq!(val, case.expected),
                 _ => panic!("object is not Boolean. got={:?}", evaluated),
             }
         }

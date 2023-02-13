@@ -7,6 +7,8 @@ pub enum Object {
     Null,
 }
 
+pub const OBJECT_NULL: Object = Object::Null;
+
 impl fmt::Display for Object {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
