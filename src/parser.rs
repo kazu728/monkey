@@ -277,6 +277,7 @@ impl Parser {
                 Some(Token::False) => Token::False,
                 Some(Token::Bang) => Token::Bang,
                 Some(Token::Minus) => Token::Minus,
+                Some(Token::LParen) => Token::LParen,
                 Some(Token::If) => Token::If,
                 Some(Token::Fn) => Token::Fn,
                 _ => panic!("Unexpected token: {:?}", self.current_token),

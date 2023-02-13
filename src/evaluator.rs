@@ -1,5 +1,5 @@
 use crate::{
-    ast::{Expression, PrefixExpression, Program, Statement},
+    ast::{Expression, InfixExpression, PrefixExpression, Program, Statement},
     object::OBJECT_NULL,
 };
 
@@ -30,6 +30,9 @@ fn evaluate_expression(expression: Expression) -> Object {
         Expression::PrefixExpression(prefix_expression) => {
             evaluate_prefix_expression(prefix_expression)
         }
+        Expression::InfixExpression(infix_expression) => {
+            evaluate_infix_expression(infix_expression)
+        }
         _ => panic!("Unexpected expression. got={:?}", expression),
     }
 }
@@ -51,6 +54,31 @@ fn evaluate_prefix_expression(prefix_expression: PrefixExpression) -> Object {
     }
 }
 
+fn evaluate_infix_expression(infix_expression: InfixExpression) -> Object {
+    let left = evaluate_expression(*infix_expression.left);
+    let right = evaluate_expression(*infix_expression.right);
+
+    match (left, right) {
+        (Object::Integer(a), Object::Integer(b)) => match infix_expression.operator.as_str() {
+            "+" => Object::Integer(a + b),
+            "-" => Object::Integer(a - b),
+            "*" => Object::Integer(a * b),
+            "/" => Object::Integer(a / b),
+            "<" => (a < b).into(),
+            ">" => (a > b).into(),
+            "==" => (a == b).into(),
+            "!=" => (a != b).into(),
+            _ => OBJECT_NULL,
+        },
+        (Object::Bool(a), Object::Bool(b)) => match infix_expression.operator.as_str() {
+            "==" => (a == b).into(),
+            "!=" => (a != b).into(),
+            _ => OBJECT_NULL,
+        },
+        _ => OBJECT_NULL,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{lexer::Lexer, object::Object, parser::Parser};
@@ -65,7 +93,23 @@ mod tests {
 
     #[test]
     fn test_eval_integer_expression() {
-        let input = vec![("5", 5), ("10", 10), ("-5", -5), ("-10", -10)];
+        let input = vec![
+            ("5", 5),
+            ("10", 10),
+            ("-5", -5),
+            ("-10", -10),
+            ("5 + 5 + 5 + 5 - 10", 10),
+            ("2 * 2 * 2 * 2 * 2", 32),
+            ("-50 + 100 + -50", 0),
+            ("5 * 2 + 10", 20),
+            ("5 + 2 * 10", 25),
+            ("20 + 2 * -10", 0),
+            ("50 / 2 * 2 + 10", 60),
+            ("2 * (5 + 10)", 30),
+            ("3 * 3 * 3 + 10", 37),
+            ("3 * (3 * 3) + 10", 37),
+            ("(5 + 10 * 2 + 15 / 3) * 2 + -10", 50),
+        ];
 
         for case in input {
             let evaluated = test_eval(case.0.to_string());
@@ -78,7 +122,27 @@ mod tests {
 
     #[test]
     fn test_boolean_exporession() {
-        let input = vec![("true", true), ("false", false)];
+        let input = vec![
+            ("true", true),
+            ("false", false),
+            ("1 < 2", true),
+            ("1 > 2", false),
+            ("1 < 1", false),
+            ("1 > 1", false),
+            ("1 == 1", true),
+            ("1 != 1", false),
+            ("1 == 2", false),
+            ("1 != 2", true),
+            ("true == true", true),
+            ("false == false", true),
+            ("true == false", false),
+            ("true != false", true),
+            ("false != true", true),
+            ("(1 < 2) == true", true),
+            ("(1 < 2) == false", false),
+            ("(1 > 2) == true", false),
+            ("(1 > 2) == false", true),
+        ];
 
         for case in input {
             let evaluated = test_eval(case.0.to_string());
