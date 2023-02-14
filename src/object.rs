@@ -4,6 +4,7 @@ use core::fmt;
 pub enum Object {
     Integer(i64),
     Bool(bool),
+    Return(Box<Object>),
     Null,
 }
 
@@ -14,6 +15,7 @@ impl fmt::Display for Object {
         match self {
             Object::Integer(val) => write!(f, "{}", val),
             Object::Bool(val) => write!(f, "{}", val),
+            Object::Return(val) => write!(f, "return {}", val),
             Object::Null => write!(f, "null"),
         }
     }

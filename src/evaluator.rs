@@ -8,6 +8,9 @@ pub fn eval(program: Program) -> Object {
 
     for stmt in program.statements {
         obj = evaluate_statement(stmt);
+        if let Object::Return(value) = obj {
+            return *value;
+        }
     }
     obj
 }
@@ -17,6 +20,9 @@ fn evaluate_statement(statement: Statement) -> Object {
         Statement::Expression(expression_statement) => {
             evaluate_expression(expression_statement.expression)
         }
+        Statement::Return(return_statement) => {
+            Object::Return(Box::new(evaluate_expression(return_statement.return_value)))
+        }
         _ => panic!("statement is not ExpressionStatement. got={:?}", statement),
     }
 }
@@ -25,6 +31,10 @@ fn evaluate_block_statement(block_statement: BlockStatement) -> Object {
     let mut obj = Object::Null;
     for stmt in block_statement.statements {
         obj = evaluate_statement(stmt);
+
+        if let Object::Return(_) = obj {
+            return obj;
+        }
     }
     obj
 }
@@ -252,6 +262,47 @@ mod tests {
                     _ => panic!("object is not Null. got={:?}", evaluated),
                 },
                 _ => panic!("object is not Integer. got={:?}", evaluated),
+            }
+        }
+    }
+
+    #[test]
+    fn test_return_statements() {
+        struct Case {
+            input: String,
+            expected: i64,
+        }
+        impl Case {
+            fn new(input: &str, expected: i64) -> Self {
+                Case {
+                    input: input.to_string(),
+                    expected,
+                }
+            }
+        }
+        let cases = vec![
+            Case::new("return 10;", 10),
+            Case::new("return 10; 9;", 10),
+            Case::new("return 2 * 5; 9;", 10),
+            Case::new("9; return 2 * 5; 9;", 10),
+            Case::new(
+                "
+                if (10 > 1) {
+                    if (10 > 1) {
+                        return 10;
+                    }
+                    return 1;
+                }
+                ",
+                10,
+            ),
+        ];
+
+        for case in cases {
+            let evaluated = test_eval(case.input);
+            match evaluated {
+                Object::Integer(val) => assert_eq!(val, case.expected),
+                _ => panic!("object is not Integer. got={}", evaluated),
             }
         }
     }
