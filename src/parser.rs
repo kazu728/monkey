@@ -404,11 +404,7 @@ impl Parser {
 
                 Some(self.parse_block_statement()?)
             }
-            Some(_) => Err(ParserError::UnexpectedToken {
-                expected: Token::Else,
-                actual: self.peek_token.clone().unwrap(),
-            })?,
-            None => None,
+            _ => None,
         };
 
         Ok(Expression::IfExpression(IfExpression::new(
