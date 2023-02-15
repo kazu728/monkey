@@ -1,6 +1,6 @@
 use core::fmt;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Object {
     Integer(i64),
     Bool(bool),

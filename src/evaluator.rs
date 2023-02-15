@@ -1,13 +1,14 @@
 use super::ast::{
     BlockStatement, Expression, IfExpression, InfixExpression, PrefixExpression, Program, Statement,
 };
+use super::environment::Environment;
 use super::object::{Object, OBJECT_NULL};
 
-pub fn eval(program: Program) -> Object {
+pub fn eval(program: Program, env: &mut Environment) -> Object {
     let mut obj = OBJECT_NULL;
 
     for stmt in program.statements {
-        obj = evaluate_statement(stmt);
+        obj = evaluate_statement(stmt, env);
 
         if let Object::Return(value) = obj {
             return *value;
@@ -19,22 +20,32 @@ pub fn eval(program: Program) -> Object {
     obj
 }
 
-fn evaluate_statement(statement: Statement) -> Object {
+fn evaluate_statement(statement: Statement, env: &mut Environment) -> Object {
     match statement {
         Statement::Expression(expression_statement) => {
-            evaluate_expression(expression_statement.expression)
+            evaluate_expression(expression_statement.expression, env)
         }
-        Statement::Return(return_statement) => {
-            Object::Return(Box::new(evaluate_expression(return_statement.return_value)))
+        Statement::Let(let_statement) => {
+            let value = evaluate_expression(let_statement.value, env);
+            if let Object::Error(_) = &value {
+                return value;
+            }
+
+            env.set(let_statement.name.value, value.clone());
+            value
         }
+        Statement::Return(return_statement) => Object::Return(Box::new(evaluate_expression(
+            return_statement.return_value,
+            env,
+        ))),
         _ => panic!("statement is not ExpressionStatement. got={:?}", statement),
     }
 }
 
-fn evaluate_block_statement(block_statement: BlockStatement) -> Object {
+fn evaluate_block_statement(block_statement: BlockStatement, env: &mut Environment) -> Object {
     let mut obj = Object::Null;
     for stmt in block_statement.statements {
-        obj = evaluate_statement(stmt);
+        obj = evaluate_statement(stmt, env);
 
         if let Object::Return(_) = obj {
             return obj;
@@ -47,23 +58,33 @@ fn evaluate_block_statement(block_statement: BlockStatement) -> Object {
     obj
 }
 
-fn evaluate_expression(expression: Expression) -> Object {
+fn evaluate_expression(expression: Expression, env: &mut Environment) -> Object {
     match expression {
         Expression::NumberLiteral(integer_literal) => Object::Integer(integer_literal.value),
         Expression::Boolean(boolean) => boolean.value.into(),
         Expression::PrefixExpression(prefix_expression) => {
-            evaluate_prefix_expression(prefix_expression)
+            evaluate_prefix_expression(prefix_expression, env)
         }
         Expression::InfixExpression(infix_expression) => {
-            evaluate_infix_expression(infix_expression)
+            evaluate_infix_expression(infix_expression, env)
         }
-        Expression::IfExpression(if_expression) => evaluate_if_expression(if_expression),
+        Expression::IfExpression(if_expression) => evaluate_if_expression(if_expression, env),
+        Expression::Identifier(identifier) => {
+            if let Some(obj) = env.get(&identifier.value) {
+                obj.clone()
+            } else {
+                Object::Error(format!("identifier not found: {}", identifier.value))
+            }
+        }
         _ => panic!("Unexpected expression. got={:?}", expression),
     }
 }
 
-fn evaluate_prefix_expression(prefix_expression: PrefixExpression) -> Object {
-    let right = evaluate_expression(*prefix_expression.right);
+fn evaluate_prefix_expression(
+    prefix_expression: PrefixExpression,
+    env: &mut Environment,
+) -> Object {
+    let right = evaluate_expression(*prefix_expression.right, env);
 
     if let Object::Error(_) = right {
         return right;
@@ -90,13 +111,13 @@ fn evaluate_prefix_expression(prefix_expression: PrefixExpression) -> Object {
     }
 }
 
-fn evaluate_infix_expression(infix_expression: InfixExpression) -> Object {
-    let left = evaluate_expression(*infix_expression.left);
+fn evaluate_infix_expression(infix_expression: InfixExpression, env: &mut Environment) -> Object {
+    let left = evaluate_expression(*infix_expression.left, env);
     if let Object::Error(_) = left {
         return left;
     }
 
-    let right = evaluate_expression(*infix_expression.right);
+    let right = evaluate_expression(*infix_expression.right, env);
     if let Object::Error(_) = right {
         return right;
     }
@@ -134,17 +155,17 @@ fn evaluate_infix_expression(infix_expression: InfixExpression) -> Object {
     }
 }
 
-fn evaluate_if_expression(if_expression: IfExpression) -> Object {
-    let condition = evaluate_expression(*if_expression.condition);
+fn evaluate_if_expression(if_expression: IfExpression, env: &mut Environment) -> Object {
+    let condition = evaluate_expression(*if_expression.condition, env);
 
     if let Object::Error(_) = condition {
         return condition;
     }
 
     if is_truthy(condition) {
-        evaluate_block_statement(if_expression.consequence)
+        evaluate_block_statement(if_expression.consequence, env)
     } else if let Some(alternative) = if_expression.alternative {
-        evaluate_block_statement(alternative)
+        evaluate_block_statement(alternative, env)
     } else {
         OBJECT_NULL
     }
@@ -163,14 +184,14 @@ fn is_truthy(object: Object) -> bool {
 mod tests {
     use std::vec;
 
-    use crate::{lexer::Lexer, object::Object, parser::Parser};
+    use crate::{environment::Environment, lexer::Lexer, object::Object, parser::Parser};
 
     use super::eval;
 
     fn test_eval(input: String) -> Object {
         let program = Parser::new(Lexer::new(input)).parse_program();
 
-        eval(program)
+        eval(program, &mut Environment::new())
     }
 
     #[test]
@@ -384,6 +405,7 @@ mod tests {
                 ",
                 "unknown operator: BOOLEAN + BOOLEAN",
             ),
+            Case::new("foobar", "identifier not found: foobar"),
         ];
 
         for case in cases {
@@ -391,6 +413,35 @@ mod tests {
             match evaluated {
                 Object::Error(val) => assert_eq!(val, case.expected),
                 _ => panic!("object is not Error. got={}", evaluated),
+            }
+        }
+    }
+    #[test]
+    fn test_let_statements() {
+        struct Case {
+            input: String,
+            expected: i64,
+        }
+        impl Case {
+            fn new(input: &str, expected: i64) -> Self {
+                Case {
+                    input: input.to_string(),
+                    expected,
+                }
+            }
+        }
+        let cases = vec![
+            Case::new("let a = 5; a;", 5),
+            Case::new("let a = 5 * 5; a;", 25),
+            Case::new("let a = 5; let b = a; b;", 5),
+            Case::new("let a = 5; let b = a; let c = a + b + 5; c;", 15),
+        ];
+
+        for case in cases {
+            let evaluated = test_eval(case.input);
+            match evaluated {
+                Object::Integer(val) => assert_eq!(val, case.expected),
+                _ => panic!("object is not Integer. got={}", evaluated),
             }
         }
     }
