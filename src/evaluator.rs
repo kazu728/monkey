@@ -4,12 +4,16 @@ use super::ast::{
 use super::object::{Object, OBJECT_NULL};
 
 pub fn eval(program: Program) -> Object {
-    let mut obj = Object::Null;
+    let mut obj = OBJECT_NULL;
 
     for stmt in program.statements {
         obj = evaluate_statement(stmt);
+
         if let Object::Return(value) = obj {
             return *value;
+        };
+        if let Object::Error(_) = obj {
+            return obj;
         }
     }
     obj
@@ -35,6 +39,10 @@ fn evaluate_block_statement(block_statement: BlockStatement) -> Object {
         if let Object::Return(_) = obj {
             return obj;
         }
+
+        if let Object::Error(_) = obj {
+            return obj;
+        }
     }
     obj
 }
@@ -57,23 +65,41 @@ fn evaluate_expression(expression: Expression) -> Object {
 fn evaluate_prefix_expression(prefix_expression: PrefixExpression) -> Object {
     let right = evaluate_expression(*prefix_expression.right);
 
+    if let Object::Error(_) = right {
+        return right;
+    }
+
     match prefix_expression.operator.as_str() {
         "!" => match right {
             Object::Bool(val) => Object::Bool(!val),
             Object::Integer(val) => Object::Bool(val == 0),
-            _ => OBJECT_NULL,
+            Object::Null => Object::Bool(true),
+            _ => Object::Bool(false),
         },
         "-" => match right {
             Object::Integer(val) => Object::Integer(-val),
-            _ => OBJECT_NULL,
+            _ => Object::Error(format!(
+                "unknown operator: {}BOOLEAN",
+                prefix_expression.operator
+            )),
         },
-        _ => OBJECT_NULL,
+        _ => Object::Error(format!(
+            "unknown operator: {}{}",
+            prefix_expression.operator, right
+        )),
     }
 }
 
 fn evaluate_infix_expression(infix_expression: InfixExpression) -> Object {
     let left = evaluate_expression(*infix_expression.left);
+    if let Object::Error(_) = left {
+        return left;
+    }
+
     let right = evaluate_expression(*infix_expression.right);
+    if let Object::Error(_) = right {
+        return right;
+    }
 
     match (left, right) {
         (Object::Integer(a), Object::Integer(b)) => match infix_expression.operator.as_str() {
@@ -85,19 +111,35 @@ fn evaluate_infix_expression(infix_expression: InfixExpression) -> Object {
             ">" => (a > b).into(),
             "==" => (a == b).into(),
             "!=" => (a != b).into(),
-            _ => OBJECT_NULL,
+            _ => Object::Error(format!(
+                "unknown operator: INTEGER {} INTEGER",
+                infix_expression.operator
+            )),
         },
         (Object::Bool(a), Object::Bool(b)) => match infix_expression.operator.as_str() {
             "==" => (a == b).into(),
             "!=" => (a != b).into(),
-            _ => OBJECT_NULL,
+            _ => Object::Error(format!(
+                "unknown operator: BOOLEAN {} BOOLEAN",
+                infix_expression.operator
+            )),
         },
-        _ => OBJECT_NULL,
+        (Object::Integer(_), Object::Bool(_)) | (Object::Bool(_), Object::Integer(_)) => {
+            Object::Error(format!(
+                "type mismatch: INTEGER {} BOOLEAN",
+                infix_expression.operator
+            ))
+        }
+        _ => Object::Error("unknown operator: BOOLEAN {} BOOLEAN".to_string()),
     }
 }
 
 fn evaluate_if_expression(if_expression: IfExpression) -> Object {
     let condition = evaluate_expression(*if_expression.condition);
+
+    if let Object::Error(_) = condition {
+        return condition;
+    }
 
     if is_truthy(condition) {
         evaluate_block_statement(if_expression.consequence)
@@ -303,6 +345,52 @@ mod tests {
             match evaluated {
                 Object::Integer(val) => assert_eq!(val, case.expected),
                 _ => panic!("object is not Integer. got={}", evaluated),
+            }
+        }
+    }
+
+    #[test]
+    fn test_error_handling() {
+        struct Case {
+            input: String,
+            expected: String,
+        }
+        impl Case {
+            fn new(input: &str, expected: &str) -> Self {
+                Case {
+                    input: input.to_string(),
+                    expected: expected.to_string(),
+                }
+            }
+        }
+        let cases = vec![
+            Case::new("5 + true;", "type mismatch: INTEGER + BOOLEAN"),
+            Case::new("5 + true; 5;", "type mismatch: INTEGER + BOOLEAN"),
+            Case::new("-true", "unknown operator: -BOOLEAN"),
+            Case::new("true + false;", "unknown operator: BOOLEAN + BOOLEAN"),
+            Case::new("5; true + false; 5", "unknown operator: BOOLEAN + BOOLEAN"),
+            Case::new(
+                "if (10 > 1) { true + false; }",
+                "unknown operator: BOOLEAN + BOOLEAN",
+            ),
+            Case::new(
+                "
+                if (10 > 1) {
+                    if (10 > 1) {
+                        return true + false;
+                    }
+                    return 1;
+                }
+                ",
+                "unknown operator: BOOLEAN + BOOLEAN",
+            ),
+        ];
+
+        for case in cases {
+            let evaluated = test_eval(case.input);
+            match evaluated {
+                Object::Error(val) => assert_eq!(val, case.expected),
+                _ => panic!("object is not Error. got={}", evaluated),
             }
         }
     }

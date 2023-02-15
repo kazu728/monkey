@@ -5,6 +5,7 @@ pub enum Object {
     Integer(i64),
     Bool(bool),
     Return(Box<Object>),
+    Error(String),
     Null,
 }
 
@@ -16,6 +17,7 @@ impl fmt::Display for Object {
             Object::Integer(val) => write!(f, "{}", val),
             Object::Bool(val) => write!(f, "{}", val),
             Object::Return(val) => write!(f, "return {}", val),
+            Object::Error(val) => write!(f, "error: {}", val),
             Object::Null => write!(f, "null"),
         }
     }
