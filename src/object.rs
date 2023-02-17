@@ -1,10 +1,16 @@
 use core::fmt;
 
+use crate::{
+    ast::{BlockStatement, Identifier},
+    environment::Environment,
+};
+
 #[derive(Debug, Clone)]
 pub enum Object {
     Integer(i64),
     Bool(bool),
     Return(Box<Object>),
+    Function(Vec<Identifier>, BlockStatement, Environment),
     Error(String),
     Null,
 }
@@ -19,6 +25,17 @@ impl fmt::Display for Object {
             Object::Return(val) => write!(f, "return {}", val),
             Object::Error(val) => write!(f, "error: {}", val),
             Object::Null => write!(f, "null"),
+            Object::Function(identifiers, body, env) => write!(
+                f,
+                "function {} {:?} {:?}",
+                identifiers
+                    .iter()
+                    .map(|i| i.value.clone())
+                    .collect::<Vec<String>>()
+                    .join(", "),
+                body,
+                env
+            ),
         }
     }
 }

@@ -1,5 +1,6 @@
 use super::ast::{
-    BlockStatement, Expression, IfExpression, InfixExpression, PrefixExpression, Program, Statement,
+    BlockStatement, Expression, Identifier, IfExpression, InfixExpression, PrefixExpression,
+    Program, Statement,
 };
 use super::environment::Environment;
 use super::object::{Object, OBJECT_NULL};
@@ -76,8 +77,58 @@ fn evaluate_expression(expression: Expression, env: &mut Environment) -> Object 
                 Object::Error(format!("identifier not found: {}", identifier.value))
             }
         }
+        Expression::FunctionLiteral(function_literal) => {
+            let params = function_literal.parameters;
+            let body = function_literal.body;
+
+            Object::Function(params, body, env.clone())
+        }
+        Expression::CallExpression(call_expression) => {
+            let function = evaluate_expression(*call_expression.function, env);
+
+            if let Object::Error(_) = function {
+                return function;
+            }
+
+            let mut args = vec![];
+
+            for arg in call_expression.arguments {
+                let evaluated = evaluate_expression(arg, env);
+                if let Object::Error(_) = evaluated {
+                    return evaluated;
+                }
+                args.push(evaluated);
+            }
+
+            apply_function(function, args)
+        }
         _ => panic!("Unexpected expression. got={:?}", expression),
     }
+}
+
+fn apply_function(function: Object, args: Vec<Object>) -> Object {
+    match function {
+        Object::Function(params, body, env) => {
+            let mut extended_env = extend_function_env(params, args, env);
+
+            evaluate_block_statement(body, &mut extended_env)
+        }
+        _ => Object::Error(format!("not a function: {:?}", function)),
+    }
+}
+
+fn extend_function_env(
+    params: Vec<Identifier>,
+    args: Vec<Object>,
+    env: Environment,
+) -> Environment {
+    let mut new_env = Environment::new_enclosed_environment(env);
+
+    for (param, arg) in params.iter().zip(args) {
+        new_env.set(param.value.clone(), arg);
+    }
+
+    new_env
 }
 
 fn evaluate_prefix_expression(
@@ -435,6 +486,53 @@ mod tests {
             Case::new("let a = 5 * 5; a;", 25),
             Case::new("let a = 5; let b = a; b;", 5),
             Case::new("let a = 5; let b = a; let c = a + b + 5; c;", 15),
+        ];
+
+        for case in cases {
+            let evaluated = test_eval(case.input);
+            match evaluated {
+                Object::Integer(val) => assert_eq!(val, case.expected),
+                _ => panic!("object is not Integer. got={}", evaluated),
+            }
+        }
+    }
+
+    #[test]
+    fn test_function_object() {
+        let input = "fn(x) { x + 2; };";
+        let evaluated = test_eval(input.to_string());
+
+        match evaluated {
+            Object::Function(parameters, body, _) => {
+                assert_eq!(parameters.len(), 1);
+                assert_eq!(parameters[0].value, "x".to_string());
+                assert_eq!(body.statements.len(), 1);
+            }
+            _ => panic!("object is not Function. got={}", evaluated),
+        }
+    }
+
+    #[test]
+    fn test_function_application() {
+        struct Case {
+            input: String,
+            expected: i64,
+        }
+        impl Case {
+            fn new(input: &str, expected: i64) -> Self {
+                Case {
+                    input: input.to_string(),
+                    expected,
+                }
+            }
+        }
+        let cases = vec![
+            Case::new("let identity = fn(x) { x; }; identity(5);", 5),
+            Case::new("let identity = fn(x) { return x; }; identity(5);", 5),
+            Case::new("let double = fn(x) { x * 2; }; double(5);", 10),
+            Case::new("let add = fn(x, y) { x + y; }; add(5, 5);", 10),
+            Case::new("let add = fn(x, y) { x + y; }; add(5 + 5, add(5, 5));", 20),
+            Case::new("fn(x) { x; }(5)", 5),
         ];
 
         for case in cases {
