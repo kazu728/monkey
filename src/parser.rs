@@ -39,11 +39,13 @@ impl Precedence {
     }
 }
 
+type PrefixParseFnType = fn(&mut Parser) -> Result<Expression, ParserError>;
 struct PrefixParseFn {
-    apply: fn(&mut Parser) -> Result<Expression, ParserError>,
+    apply: PrefixParseFnType,
 }
+type InfixParseFnType = fn(&mut Parser, Expression) -> Result<Expression, ParserError>;
 struct InfixParsefn {
-    apply: fn(&mut Parser, Expression) -> Result<Expression, ParserError>,
+    apply: InfixParseFnType,
 }
 
 impl Debug for PrefixParseFn {
@@ -81,11 +83,7 @@ impl Parser {
         parser.next_token();
         parser.next_token();
 
-        parser.register_prefix(
-            Token::Identifier("Identifier".to_string()),
-            Parser::parse_identifier,
-        );
-
+        parser.register_prefix(Token::Identifier("_".to_string()), Parser::parse_identifier);
         parser.register_prefix(Token::Number(0), Parser::parse_number);
         parser.register_prefix(Token::Bang, Parser::parse_prefix_expression);
         parser.register_prefix(Token::Minus, Parser::parse_prefix_expression);
@@ -127,25 +125,17 @@ impl Parser {
         }
     }
 
-    fn register_prefix(
-        &mut self,
-        token: Token,
-        f: fn(&mut Parser) -> Result<Expression, ParserError>,
-    ) {
+    fn register_prefix(&mut self, token: Token, f: PrefixParseFnType) {
         self.prefix_parse_fns
             .insert(token, PrefixParseFn { apply: f });
     }
-    fn register_infix(
-        &mut self,
-        token: Token,
-        f: fn(&mut Parser, left: Expression) -> Result<Expression, ParserError>,
-    ) {
+    fn register_infix(&mut self, token: Token, f: InfixParseFnType) {
         self.infix_parse_fns
             .insert(token, InfixParsefn { apply: f });
     }
 
     fn expect_token(&mut self, expected: Token) -> Result<(), ParserError> {
-        if self.peek_token.as_ref().unwrap() == &expected {
+        if self.peek_token.as_ref() == Some(&expected) {
             self.next_token();
             Ok(())
         } else {
@@ -196,21 +186,13 @@ impl Parser {
                 Token::Return => Ok(Statement::Return(self.parse_return_statement()?)),
                 _ => Ok(Statement::Expression(self.parse_expression_statement()?)),
             },
-            None => unreachable!("While statemment is passed, but current token is None."),
+            None => Err(ParserError::UnexpectedEof),
         }
     }
     fn parse_let_statement(&mut self) -> Result<LetStatement, ParserError> {
-        let maybe_identifier_token =
-            self.peek_token
-                .as_ref()
-                .ok_or(ParserError::UnexpectedToken {
-                    expected: Token::Identifier("${IDENTIFIER}".to_string()),
-                    actual: Token::Eof,
-                })?;
-
-        match maybe_identifier_token {
-            Token::Identifier(s) => {
-                let identifier = Identifier::new(maybe_identifier_token.clone(), s.to_string());
+        match &self.peek_token {
+            Some(Token::Identifier(s)) => {
+                let identifier = Identifier::new(Token::Identifier(s.to_string()));
 
                 self.next_token();
                 self.expect_token(Token::Assign)?;
@@ -230,7 +212,7 @@ impl Parser {
             }
             _ => Err(ParserError::UnexpectedToken {
                 expected: Token::Identifier("${IDENTIFIER}".to_string()),
-                actual: maybe_identifier_token.clone(),
+                actual: self.peek_token.clone().unwrap(),
             }),
         }
     }
@@ -270,16 +252,10 @@ impl Parser {
     fn parse_expression(&mut self, precedence: Precedence) -> Result<Expression, ParserError> {
         let mut left_expression = (self
             .prefix_parse_fns
-            .get(&match self.current_token {
-                Some(Token::Identifier(_)) => Token::Identifier("Identifier".to_string()),
+            .get(&match &self.current_token {
+                Some(Token::Identifier(_)) => Token::Identifier("_".to_string()),
                 Some(Token::Number(_)) => Token::Number(0),
-                Some(Token::True) => Token::True,
-                Some(Token::False) => Token::False,
-                Some(Token::Bang) => Token::Bang,
-                Some(Token::Minus) => Token::Minus,
-                Some(Token::LParen) => Token::LParen,
-                Some(Token::If) => Token::If,
-                Some(Token::Fn) => Token::Fn,
+                Some(token) => token.clone(),
                 _ => panic!("Unexpected token: {:?}", self.current_token),
             })
             .expect("Expression's parseFn is not registered")
@@ -310,7 +286,6 @@ impl Parser {
         match &self.current_token {
             Some(Token::Identifier(s)) => Ok(Expression::Identifier(Identifier::new(
                 Token::Identifier(s.to_string()),
-                s.to_string(),
             ))),
             Some(unexpected_token) => Err(ParserError::UnexpectedToken {
                 expected: Token::Identifier("Identifier".to_string()),
@@ -336,8 +311,8 @@ impl Parser {
 
     pub fn parse_boolean(&mut self) -> Result<Expression, ParserError> {
         match &self.current_token {
-            Some(Token::True) => Ok(Expression::Boolean(Boolean::new(Token::True, true))),
-            Some(Token::False) => Ok(Expression::Boolean(Boolean::new(Token::False, false))),
+            Some(Token::True) => Ok(Expression::Boolean(Boolean::new(Token::True))),
+            Some(Token::False) => Ok(Expression::Boolean(Boolean::new(Token::False))),
             Some(unexpected_token) => Err(ParserError::UnexpectedToken {
                 expected: Token::True,
                 actual: unexpected_token.clone(),
@@ -417,6 +392,7 @@ impl Parser {
 
     pub fn parse_function_literal(&mut self) -> Result<Expression, ParserError> {
         self.expect_token(Token::LParen)?;
+
         let parameters = self.parse_function_parameters()?;
 
         self.expect_token(Token::LBrace)?;
@@ -440,9 +416,7 @@ impl Parser {
         self.next_token();
 
         let identifier = match &self.current_token {
-            Some(Token::Identifier(s)) => {
-                Identifier::new(Token::Identifier(s.to_string()), s.to_string())
-            }
+            Some(Token::Identifier(s)) => Identifier::new(Token::Identifier(s.to_string())),
             Some(unexpected_token) => Err(ParserError::UnexpectedToken {
                 expected: Token::Identifier("Identifier".to_string()),
                 actual: unexpected_token.clone(),
@@ -457,9 +431,7 @@ impl Parser {
             self.next_token();
 
             let identifier = match &self.current_token {
-                Some(Token::Identifier(s)) => {
-                    Identifier::new(Token::Identifier(s.to_string()), s.to_string())
-                }
+                Some(Token::Identifier(s)) => Identifier::new(Token::Identifier(s.to_string())),
                 Some(unexpected_token) => Err(ParserError::UnexpectedToken {
                     expected: Token::Identifier("Identifier".to_string()),
                     actual: unexpected_token.clone(),
@@ -557,16 +529,10 @@ mod tests {
     use crate::{
         ast::{Expression, Program, Statement},
         lexer::*,
+        object::{Object, OBJECT_FALSE, OBJECT_TRUE},
     };
 
     use super::Parser;
-
-    #[derive(Debug, PartialEq)]
-    enum Value {
-        Number(i64),
-        Boolean(bool),
-    }
-    use Value::*;
 
     fn expect_statement_len(program: &Program, expected: usize) {
         if program.statements.len() != expected {
@@ -576,6 +542,22 @@ mod tests {
                 program.statements.len(),
                 program.statements
             )
+        }
+    }
+
+    fn assert_number_literal(expression: &Expression, expected: i64) {
+        match expression {
+            Expression::NumberLiteral(number) => assert_eq!(number.value, expected),
+            _ => panic!("Expected NumberLiteral, but got {:?}", expression),
+        }
+    }
+
+    fn assert_identifier(expression: &Expression, expected: &str) {
+        match expression {
+            Expression::Identifier(identifier) => {
+                assert_eq!(identifier.get_token_value(), expected)
+            }
+            _ => panic!("Expected Identifier, but got {:?}", expression),
         }
     }
 
@@ -590,7 +572,10 @@ mod tests {
 
         expect_statement_len(&program, 3);
 
-        let expected_identifiers = vec!["x", "y", "foobar"];
+        let expected_identifiers: Vec<String> = vec!["x", "y", "foobar"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
 
         for (i, statement) in program.statements.into_iter().enumerate() {
             let identifier = expected_identifiers.get(i).unwrap();
@@ -598,7 +583,7 @@ mod tests {
             match statement {
                 Statement::Let(statement) => {
                     assert_eq!(statement.token, Token::Let);
-                    assert_eq!(statement.name.value, identifier.to_string());
+                    assert_eq!(statement.name.get_token_value(), *identifier);
                 }
                 _ => panic!("statement is not a let statement"),
             }
@@ -635,7 +620,6 @@ mod tests {
             Some(Statement::Expression(statement)) => match &statement.expression {
                 Expression::Identifier(identifier) => {
                     assert_eq!(identifier.token, Token::Identifier("foobar".to_string()));
-                    assert_eq!(identifier.value, "foobar".to_string());
                 }
                 _ => panic!("Expected Identifier, but got {:?}", statement.expression),
             },
@@ -655,10 +639,7 @@ mod tests {
 
         match program.statements.get(0) {
             Some(Statement::Expression(statement)) => match &statement.expression {
-                Expression::Boolean(boolean) => {
-                    assert_eq!(boolean.token, Token::True);
-                    assert!(boolean.value);
-                }
+                Expression::Boolean(boolean) => assert_eq!(boolean.token, Token::True),
                 _ => panic!("Expected Boolean, but got {:?}", statement.expression),
             },
             _ => panic!(
@@ -676,13 +657,9 @@ mod tests {
         expect_statement_len(&program, 1);
 
         match program.statements.get(0) {
-            Some(Statement::Expression(statement)) => match &statement.expression {
-                Expression::NumberLiteral(number) => {
-                    assert_eq!(number.token, Token::Number(5));
-                    assert_eq!(number.value, 5);
-                }
-                _ => panic!("Expected Number, but got {:?}", statement.expression),
-            },
+            Some(Statement::Expression(statement)) => {
+                assert_number_literal(&statement.expression, 5)
+            }
             _ => panic!(
                 "Expected ExpressionStatement, but got {:?}",
                 program.statements.get(0)
@@ -691,14 +668,14 @@ mod tests {
     }
     #[test]
     fn test_parsing_prefix_expressions() {
-        struct PrefixInputExpression {
+        struct Case {
             input: String,
             operator: String,
-            value: Value,
+            value: Object,
         }
 
-        impl PrefixInputExpression {
-            pub fn new(input: &str, operator: &str, value: Value) -> Self {
+        impl Case {
+            pub fn new(input: &str, operator: &str, value: Object) -> Self {
                 Self {
                     input: input.to_string(),
                     operator: operator.to_string(),
@@ -706,28 +683,29 @@ mod tests {
                 }
             }
         }
-        let prefix_expressions: Vec<PrefixInputExpression> = vec![
-            PrefixInputExpression::new("!5;", "!", Number(5)),
-            PrefixInputExpression::new("-15;", "-", Number(15)),
-            PrefixInputExpression::new("!true;", "!", Boolean(true)),
-            PrefixInputExpression::new("!false;", "!", Boolean(false)),
+        let cases: Vec<Case> = vec![
+            Case::new("!5;", "!", Object::Integer(5)),
+            Case::new("-15;", "-", Object::Integer(15)),
+            Case::new("!true;", "!", Object::Bool(true)),
+            Case::new("!false;", "!", Object::Bool(false)),
         ];
 
-        for prefix_expression in prefix_expressions {
-            let program = Parser::new(Lexer::new(prefix_expression.input)).parse_program();
+        for case in cases {
+            let program = Parser::new(Lexer::new(case.input)).parse_program();
 
             expect_statement_len(&program, 1);
 
             match program.statements.get(0) {
                 Some(Statement::Expression(statement)) => match &statement.expression {
                     Expression::PrefixExpression(expression) => {
-                        assert_eq!(expression.operator, prefix_expression.operator);
+                        assert_eq!(expression.operator, case.operator);
                         match &*expression.right {
                             Expression::NumberLiteral(number) => {
-                                assert_eq!(Number(number.value), prefix_expression.value)
+                                assert_eq!(Object::Integer(number.value), case.value)
                             }
                             Expression::Boolean(boolean) => {
-                                assert_eq!(Boolean(boolean.value), prefix_expression.value);
+                                let boolean: Object = boolean.clone().into();
+                                assert_eq!(boolean, case.value);
                             }
                             _ => panic!(
                                 "Expected NumberLiteral or Boolean, but got {:?}",
@@ -751,15 +729,15 @@ mod tests {
     #[test]
     fn test_parsing_infix_expression() {
         #[derive(Debug)]
-        struct InfixInputExpression {
+        struct Case {
             input: String,
-            left: Value,
+            left: Object,
             operator: String,
-            right: Value,
+            right: Object,
         }
-        impl InfixInputExpression {
-            fn new(input: &str, left: Value, operator: &str, right: Value) -> InfixInputExpression {
-                InfixInputExpression {
+        impl Case {
+            fn new(input: &str, left: Object, operator: &str, right: Object) -> Case {
+                Case {
                     input: input.to_string(),
                     left,
                     operator: operator.to_string(),
@@ -768,35 +746,41 @@ mod tests {
             }
         }
 
-        let infix_expressions: Vec<InfixInputExpression> = vec![
-            InfixInputExpression::new("5 + 5;", Number(5), "+", Number(5)),
-            InfixInputExpression::new("5 - 5;", Number(5), "-", Number(5)),
-            InfixInputExpression::new("5 * 5;", Number(5), "*", Number(5)),
-            InfixInputExpression::new("5 / 5;", Number(5), "/", Number(5)),
-            InfixInputExpression::new("5 > 5;", Number(5), ">", Number(5)),
-            InfixInputExpression::new("5 < 5;", Number(5), "<", Number(5)),
-            InfixInputExpression::new("5 == 5;", Number(5), "==", Number(5)),
-            InfixInputExpression::new("5 != 5;", Number(5), "!=", Number(5)),
-            InfixInputExpression::new("true == true;", Boolean(true), "==", Boolean(true)),
-            InfixInputExpression::new("true != false;", Boolean(true), "!=", Boolean(false)),
-            InfixInputExpression::new("false == false;", Boolean(false), "==", Boolean(false)),
+        let cases: Vec<Case> = vec![
+            Case::new("5 + 5;", Object::Integer(5), "+", Object::Integer(5)),
+            Case::new("5 - 5;", Object::Integer(5), "-", Object::Integer(5)),
+            Case::new("5 * 5;", Object::Integer(5), "*", Object::Integer(5)),
+            Case::new("5 / 5;", Object::Integer(5), "/", Object::Integer(5)),
+            Case::new("5 > 5;", Object::Integer(5), ">", Object::Integer(5)),
+            Case::new("5 < 5;", Object::Integer(5), "<", Object::Integer(5)),
+            Case::new("5 == 5;", Object::Integer(5), "==", Object::Integer(5)),
+            Case::new("5 != 5;", Object::Integer(5), "!=", Object::Integer(5)),
+            Case::new("true == true;", OBJECT_TRUE, "==", OBJECT_TRUE),
+            Case::new("true != false;", OBJECT_TRUE, "!=", OBJECT_FALSE),
+            Case::new(
+                "false == false;",
+                Object::Bool(false),
+                "==",
+                Object::Bool(false),
+            ),
         ];
 
-        for infix_expression in infix_expressions {
-            let program = Parser::new(Lexer::new(infix_expression.input)).parse_program();
+        for case in cases {
+            let program = Parser::new(Lexer::new(case.input)).parse_program();
 
             expect_statement_len(&program, 1);
 
             match program.statements.get(0) {
                 Some(Statement::Expression(statement)) => match &statement.expression {
                     Expression::InfixExpression(expression) => {
-                        assert_eq!(expression.operator, infix_expression.operator);
+                        assert_eq!(expression.operator, case.operator);
                         match &*expression.left {
-                            Expression::NumberLiteral(number) => {
-                                assert_eq!(Number(number.value), infix_expression.left);
+                            Expression::NumberLiteral(n) => {
+                                assert_eq!(Object::Integer(n.value), case.left)
                             }
                             Expression::Boolean(boolean) => {
-                                assert_eq!(Boolean(boolean.value), infix_expression.left);
+                                let boolean: Object = boolean.clone().into();
+                                assert_eq!(boolean, case.left);
                             }
                             _ => panic!(
                                 "Expected NumberLiteral or Boolean, but got {:?}",
@@ -805,10 +789,11 @@ mod tests {
                         }
                         match &*expression.right {
                             Expression::NumberLiteral(number) => {
-                                assert_eq!(Number(number.value), infix_expression.right);
+                                assert_eq!(Object::Integer(number.value), case.right);
                             }
                             Expression::Boolean(boolean) => {
-                                assert_eq!(Boolean(boolean.value), infix_expression.right);
+                                let boolean: Object = boolean.clone().into();
+                                assert_eq!(boolean, case.right);
                             }
                             _ => panic!(
                                 "Expected NumberLiteral or Boolean, but got {:?}",
@@ -844,24 +829,8 @@ mod tests {
                         Expression::InfixExpression(infix_expression) => {
                             assert_eq!(infix_expression.operator, "<");
 
-                            match &*infix_expression.left {
-                                Expression::Identifier(identifier) => {
-                                    assert_eq!(identifier.value, "x")
-                                }
-                                _ => panic!(
-                                    "Expected Identifier, but got {:?}",
-                                    infix_expression.left
-                                ),
-                            }
-                            match &*infix_expression.right {
-                                Expression::Identifier(identifier) => {
-                                    assert_eq!(identifier.value, "y");
-                                }
-                                _ => panic!(
-                                    "Expected Identifier, but got {:?}",
-                                    infix_expression.right
-                                ),
-                            }
+                            assert_identifier(&infix_expression.left, "x");
+                            assert_identifier(&infix_expression.right, "y");
                         }
                         _ => panic!(
                             "Expected InfixExpression, but got {:?}",
@@ -869,47 +838,28 @@ mod tests {
                         ),
                     };
                     match if_expression.consequence.statements.get(0) {
-                        Some(Statement::Expression(expression)) => match &expression.expression {
-                            Expression::Identifier(identifier) => assert_eq!(identifier.value, "x"),
-                            _ => panic!(
-                                "Expected Identifier, but got {:?}",
-                                if_expression.consequence.statements.get(0)
-                            ),
-                        },
+                        Some(Statement::Expression(expression)) => {
+                            assert_identifier(&expression.expression, "x")
+                        }
                         _ => panic!(
                             "Expected ExpressionStatement, but got {:?}",
                             if_expression.consequence.statements.get(0)
                         ),
                     };
-                    match if_expression
+                    let maybe_statement = if_expression
                         .alternative
                         .as_ref()
                         .unwrap()
                         .statements
-                        .get(0)
-                    {
-                        Some(Statement::Expression(expression)) => match &expression.expression {
-                            Expression::Identifier(identifier) => {
-                                assert_eq!(identifier.value, "y");
-                            }
-                            _ => panic!(
-                                "Expected Identifier, but got {:?}",
-                                if_expression
-                                    .alternative
-                                    .as_ref()
-                                    .unwrap()
-                                    .statements
-                                    .get(0)
-                            ),
-                        },
+                        .get(0);
+
+                    match maybe_statement {
+                        Some(Statement::Expression(expression)) => {
+                            assert_identifier(&expression.expression, "y")
+                        }
                         _ => panic!(
                             "Expected ExpressionStatement, but got {:?}",
-                            if_expression
-                                .alternative
-                                .as_ref()
-                                .unwrap()
-                                .statements
-                                .get(0)
+                            maybe_statement
                         ),
                     }
                 }
@@ -925,28 +875,28 @@ mod tests {
     #[test]
     fn test_function_literal_parsing() {
         #[derive(PartialEq, Eq)]
-        struct FunctionLiteralInputExpression {
+        struct Case {
             pub input: String,
             pub expected_parameters: Vec<String>,
         }
 
-        let inputs = vec![
-            FunctionLiteralInputExpression {
+        let cases = vec![
+            Case {
                 input: "fn() {}".to_string(),
                 expected_parameters: vec![],
             },
-            FunctionLiteralInputExpression {
+            Case {
                 input: "fn(x) {}".to_string(),
                 expected_parameters: vec!["x".to_string()],
             },
-            FunctionLiteralInputExpression {
+            Case {
                 input: "fn(x, y, z) {}".to_string(),
                 expected_parameters: vec!["x".to_string(), "y".to_string(), "z".to_string()],
             },
         ];
 
-        for input in inputs {
-            let program = Parser::new(Lexer::new(input.input)).parse_program();
+        for case in cases {
+            let program = Parser::new(Lexer::new(case.input)).parse_program();
 
             expect_statement_len(&program, 1);
 
@@ -955,10 +905,13 @@ mod tests {
                     Expression::FunctionLiteral(function_literal) => {
                         assert_eq!(
                             function_literal.parameters.len(),
-                            input.expected_parameters.len()
+                            case.expected_parameters.len()
                         );
                         for (i, parameter) in function_literal.parameters.iter().enumerate() {
-                            assert_eq!(parameter.value, *input.expected_parameters.get(i).unwrap());
+                            assert_eq!(
+                                parameter.get_token_value(),
+                                *case.expected_parameters.get(i).unwrap()
+                            );
                         }
                         assert_eq!(function_literal.body.statements.len(), 0);
                     }
@@ -985,46 +938,15 @@ mod tests {
         match program.statements.get(0).unwrap() {
             Statement::Expression(statement) => match &statement.expression {
                 Expression::CallExpression(call_expression) => {
-                    match &*call_expression.function {
-                        Expression::Identifier(identifier) => {
-                            assert_eq!(identifier.value, "add");
-                        }
-                        _ => panic!(
-                            "Expected Identifier, but got {:?}",
-                            call_expression.function
-                        ),
-                    }
+                    assert_identifier(&call_expression.function, "add");
                     assert_eq!(call_expression.arguments.len(), 3);
-                    match call_expression.arguments.get(0).unwrap() {
-                        Expression::NumberLiteral(number) => {
-                            assert_eq!(number.value, 1);
-                        }
-                        _ => panic!(
-                            "Expected NumberLiteral, but got {:?}",
-                            call_expression.arguments.get(0)
-                        ),
-                    }
+                    assert_number_literal(call_expression.arguments.get(0).unwrap(), 1);
+
                     match call_expression.arguments.get(1).unwrap() {
                         Expression::InfixExpression(infix_expression) => {
                             assert_eq!(infix_expression.operator, "*");
-                            match &*infix_expression.left {
-                                Expression::NumberLiteral(number) => {
-                                    assert_eq!(number.value, 2);
-                                }
-                                _ => panic!(
-                                    "Expected NumberLiteral, but got {:?}",
-                                    infix_expression.left
-                                ),
-                            }
-                            match &*infix_expression.right {
-                                Expression::NumberLiteral(number) => {
-                                    assert_eq!(number.value, 3);
-                                }
-                                _ => panic!(
-                                    "Expected NumberLiteral, but got {:?}",
-                                    infix_expression.right
-                                ),
-                            }
+                            assert_number_literal(&*infix_expression.left, 2);
+                            assert_number_literal(&*infix_expression.right, 3);
                         }
                         _ => panic!(
                             "Expected InfixExpression, but got {:?}",
@@ -1034,24 +956,9 @@ mod tests {
                     match call_expression.arguments.get(2).unwrap() {
                         Expression::InfixExpression(infix_expression) => {
                             assert_eq!(infix_expression.operator, "+");
-                            match &*infix_expression.left {
-                                Expression::NumberLiteral(number) => {
-                                    assert_eq!(number.value, 4);
-                                }
-                                _ => panic!(
-                                    "Expected NumberLiteral, but got {:?}",
-                                    infix_expression.left
-                                ),
-                            }
-                            match &*infix_expression.right {
-                                Expression::NumberLiteral(number) => {
-                                    assert_eq!(number.value, 5);
-                                }
-                                _ => panic!(
-                                    "Expected NumberLiteral, but got {:?}",
-                                    infix_expression.right
-                                ),
-                            }
+
+                            assert_number_literal(&*infix_expression.left, 4);
+                            assert_number_literal(&*infix_expression.right, 5);
                         }
                         _ => panic!(
                             "Expected InfixExpression, but got {:?}",

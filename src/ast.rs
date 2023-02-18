@@ -5,27 +5,27 @@ pub struct Program {
     pub statements: Vec<Statement>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
     Let(LetStatement),
     Return(ReturnStatement),
     Expression(ExpressionStatement),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LetStatement {
     pub token: Token,
     pub name: Identifier,
     pub value: Expression,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ReturnStatement {
     pub token: Token,
     pub return_value: Expression,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ExpressionStatement {
     pub token: Token,
     pub expression: Expression,
@@ -37,7 +37,7 @@ impl ExpressionStatement {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BlockStatement {
     pub token: Token,
     pub statements: Vec<Statement>,
@@ -49,7 +49,7 @@ impl BlockStatement {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expression {
     Identifier(Identifier),
     NumberLiteral(NumberLiteral),
@@ -64,16 +64,22 @@ pub enum Expression {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Identifier {
     pub token: Token,
-    pub value: String,
 }
 
 impl Identifier {
-    pub fn new(token: Token, value: String) -> Identifier {
-        Identifier { token, value }
+    pub fn new(token: Token) -> Identifier {
+        Identifier { token }
+    }
+
+    pub fn get_token_value(&self) -> String {
+        match &self.token {
+            Token::Identifier(value) => value.to_string(),
+            _ => panic!("Identifier::get_token_value() called on non-identifier token"),
+        }
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NumberLiteral {
     pub token: Token,
     pub value: i64,
@@ -85,19 +91,28 @@ impl NumberLiteral {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Boolean {
     pub token: Token,
-    pub value: bool,
 }
 
 impl Boolean {
-    pub fn new(token: Token, value: bool) -> Boolean {
-        Boolean { token, value }
+    pub fn new(token: Token) -> Boolean {
+        Boolean { token }
     }
 }
 
-#[derive(Debug, Clone)]
+impl From<&Boolean> for bool {
+    fn from(b: &Boolean) -> Self {
+        match b.token {
+            Token::True => true,
+            Token::False => false,
+            _ => panic!("bool::from(Boolean) called on non-boolean token"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct PrefixExpression {
     pub token: Token,
     pub operator: String,
@@ -114,7 +129,7 @@ impl PrefixExpression {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct InfixExpression {
     pub token: Token,
     pub left: Box<Expression>,
@@ -138,7 +153,7 @@ impl InfixExpression {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct IfExpression {
     pub token: Token,
     pub condition: Box<Expression>,
@@ -162,7 +177,7 @@ impl IfExpression {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FunctionLiteral {
     pub token: Token,
     pub parameters: Vec<Identifier>,
@@ -179,7 +194,7 @@ impl FunctionLiteral {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CallExpression {
     pub token: Token,
     pub function: Box<Expression>,

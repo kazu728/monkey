@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::object::Object;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Environment {
     store: HashMap<String, Object>,
     outer: Box<Option<Environment>>,
@@ -35,5 +35,11 @@ impl Environment {
 
     pub fn set(&mut self, name: String, value: Object) -> Option<Object> {
         self.store.insert(name, value)
+    }
+}
+
+impl Default for Environment {
+    fn default() -> Self {
+        Self::new()
     }
 }

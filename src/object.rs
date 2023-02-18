@@ -1,11 +1,12 @@
 use core::fmt;
 
 use crate::{
-    ast::{BlockStatement, Identifier},
+    ast::{BlockStatement, Boolean, Identifier},
     environment::Environment,
+    lexer::Token,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Object {
     Integer(i64),
     Bool(bool),
@@ -30,7 +31,7 @@ impl fmt::Display for Object {
                 "function {} {:?} {:?}",
                 identifiers
                     .iter()
-                    .map(|i| i.value.clone())
+                    .map(|i| i.get_token_value())
                     .collect::<Vec<String>>()
                     .join(", "),
                 body,
@@ -40,15 +41,15 @@ impl fmt::Display for Object {
     }
 }
 
-const OBJECT_TRUE: Object = Object::Bool(true);
-const OBJECT_FALSE: Object = Object::Bool(false);
+pub const OBJECT_TRUE: Object = Object::Bool(true);
+pub const OBJECT_FALSE: Object = Object::Bool(false);
 
-impl From<bool> for Object {
-    fn from(b: bool) -> Self {
-        if b {
-            OBJECT_TRUE
-        } else {
-            OBJECT_FALSE
+impl From<Boolean> for Object {
+    fn from(b: Boolean) -> Self {
+        match b.token {
+            Token::True => OBJECT_TRUE,
+            Token::False => OBJECT_FALSE,
+            _ => panic!("Object::from(Boolean) called on non-boolean token"),
         }
     }
 }

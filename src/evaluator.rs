@@ -32,14 +32,13 @@ fn evaluate_statement(statement: Statement, env: &mut Environment) -> Object {
                 return value;
             }
 
-            env.set(let_statement.name.value, value.clone());
+            env.set(let_statement.name.get_token_value(), value.clone());
             value
         }
         Statement::Return(return_statement) => Object::Return(Box::new(evaluate_expression(
             return_statement.return_value,
             env,
         ))),
-        _ => panic!("statement is not ExpressionStatement. got={:?}", statement),
     }
 }
 
@@ -62,7 +61,7 @@ fn evaluate_block_statement(block_statement: BlockStatement, env: &mut Environme
 fn evaluate_expression(expression: Expression, env: &mut Environment) -> Object {
     match expression {
         Expression::NumberLiteral(integer_literal) => Object::Integer(integer_literal.value),
-        Expression::Boolean(boolean) => boolean.value.into(),
+        Expression::Boolean(boolean) => boolean.into(),
         Expression::PrefixExpression(prefix_expression) => {
             evaluate_prefix_expression(prefix_expression, env)
         }
@@ -71,10 +70,13 @@ fn evaluate_expression(expression: Expression, env: &mut Environment) -> Object 
         }
         Expression::IfExpression(if_expression) => evaluate_if_expression(if_expression, env),
         Expression::Identifier(identifier) => {
-            if let Some(obj) = env.get(&identifier.value) {
+            if let Some(obj) = env.get(&identifier.get_token_value()) {
                 obj.clone()
             } else {
-                Object::Error(format!("identifier not found: {}", identifier.value))
+                Object::Error(format!(
+                    "identifier not found: {}",
+                    identifier.get_token_value()
+                ))
             }
         }
         Expression::FunctionLiteral(function_literal) => {
@@ -102,7 +104,6 @@ fn evaluate_expression(expression: Expression, env: &mut Environment) -> Object 
 
             apply_function(function, args)
         }
-        _ => panic!("Unexpected expression. got={:?}", expression),
     }
 }
 
@@ -125,7 +126,7 @@ fn extend_function_env(
     let mut new_env = Environment::new_enclosed_environment(env);
 
     for (param, arg) in params.iter().zip(args) {
-        new_env.set(param.value.clone(), arg);
+        new_env.set(param.get_token_value(), arg);
     }
 
     new_env
@@ -179,18 +180,18 @@ fn evaluate_infix_expression(infix_expression: InfixExpression, env: &mut Enviro
             "-" => Object::Integer(a - b),
             "*" => Object::Integer(a * b),
             "/" => Object::Integer(a / b),
-            "<" => (a < b).into(),
-            ">" => (a > b).into(),
-            "==" => (a == b).into(),
-            "!=" => (a != b).into(),
+            "<" => Object::Bool(a < b),
+            ">" => Object::Bool(a > b),
+            "==" => Object::Bool(a == b),
+            "!=" => Object::Bool(a != b),
             _ => Object::Error(format!(
                 "unknown operator: INTEGER {} INTEGER",
                 infix_expression.operator
             )),
         },
         (Object::Bool(a), Object::Bool(b)) => match infix_expression.operator.as_str() {
-            "==" => (a == b).into(),
-            "!=" => (a != b).into(),
+            "==" => Object::Bool(a == b),
+            "!=" => Object::Bool(a != b),
             _ => Object::Error(format!(
                 "unknown operator: BOOLEAN {} BOOLEAN",
                 infix_expression.operator
@@ -372,7 +373,7 @@ mod tests {
                     _ => panic!("object is not Integer. got={:?}", evaluated),
                 },
                 Object::Null => match case.expected {
-                    Object::Null => assert!(true),
+                    Object::Null => (),
                     _ => panic!("object is not Null. got={:?}", evaluated),
                 },
                 _ => panic!("object is not Integer. got={:?}", evaluated),
@@ -505,7 +506,7 @@ mod tests {
         match evaluated {
             Object::Function(parameters, body, _) => {
                 assert_eq!(parameters.len(), 1);
-                assert_eq!(parameters[0].value, "x".to_string());
+                assert_eq!(parameters[0].get_token_value(), "x".to_string());
                 assert_eq!(body.statements.len(), 1);
             }
             _ => panic!("object is not Function. got={}", evaluated),
