@@ -52,7 +52,8 @@ impl BlockStatement {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expression {
     Identifier(Identifier),
-    NumberLiteral(NumberLiteral),
+    IntegerLiteral(IntegerLiteral),
+    StringLiteral(StringLiteral),
     Boolean(Boolean),
     PrefixExpression(PrefixExpression),
     InfixExpression(InfixExpression),
@@ -80,14 +81,26 @@ impl Identifier {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NumberLiteral {
+pub struct IntegerLiteral {
     pub token: Token,
     pub value: i64,
 }
 
-impl NumberLiteral {
-    pub fn new(token: Token, value: i64) -> NumberLiteral {
-        NumberLiteral { token, value }
+impl IntegerLiteral {
+    pub fn new(token: Token, value: i64) -> IntegerLiteral {
+        IntegerLiteral { token, value }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StringLiteral {
+    pub token: Token,
+    pub value: String,
+}
+
+impl StringLiteral {
+    pub fn new(token: Token, value: String) -> StringLiteral {
+        StringLiteral { token, value }
     }
 }
 

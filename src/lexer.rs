@@ -6,7 +6,8 @@ pub enum Token {
     Eof,
 
     Identifier(String),
-    Number(i64),
+    Integer(i64),
+    String(String),
 
     Assign,
     Plus,
@@ -108,7 +109,22 @@ impl Lexer {
                             s.push(popped);
                         }
 
-                        return Some(Token::Number(s.parse().unwrap()));
+                        return Some(Token::Integer(s.parse().unwrap()));
+                    }
+                    '"' => {
+                        self.pop();
+                        let mut s = String::new();
+
+                        while let Some('a'..='z' | '_' | ' ') = self.peek() {
+                            let popped = self
+                                .pop()
+                                .expect("Peek returned Some, but pop returned None");
+                            s.push(popped);
+                        }
+
+                        self.pop();
+
+                        return Some(Token::String(s));
                     }
                     '=' => {
                         self.pop();
@@ -202,18 +218,20 @@ mod tests {
             }
             10 == 10;
             10 != 9;
+            \"foobar\"
+            \"foo bar\"
         ";
 
         let expect: Vec<Token> = vec![
             Token::Let,
             Token::Identifier("five".to_string()),
             Token::Assign,
-            Token::Number(5),
+            Token::Integer(5),
             Token::Semicolon,
             Token::Let,
             Token::Identifier("ten".to_string()),
             Token::Assign,
-            Token::Number(10),
+            Token::Integer(10),
             Token::Semicolon,
             Token::Let,
             Token::Identifier("add".to_string()),
@@ -245,19 +263,19 @@ mod tests {
             Token::Minus,
             Token::Slash,
             Token::Asterisk,
-            Token::Number(5),
+            Token::Integer(5),
             Token::Semicolon,
-            Token::Number(5),
+            Token::Integer(5),
             Token::Lt,
-            Token::Number(10),
+            Token::Integer(10),
             Token::Gt,
-            Token::Number(5),
+            Token::Integer(5),
             Token::Semicolon,
             Token::If,
             Token::LParen,
-            Token::Number(5),
+            Token::Integer(5),
             Token::Lt,
-            Token::Number(10),
+            Token::Integer(10),
             Token::RParen,
             Token::LBrace,
             Token::Return,
@@ -270,14 +288,16 @@ mod tests {
             Token::False,
             Token::Semicolon,
             Token::RBrace,
-            Token::Number(10),
+            Token::Integer(10),
             Token::Eq,
-            Token::Number(10),
+            Token::Integer(10),
             Token::Semicolon,
-            Token::Number(10),
+            Token::Integer(10),
             Token::NotEq,
-            Token::Number(9),
+            Token::Integer(9),
             Token::Semicolon,
+            Token::String("foobar".to_string()),
+            Token::String("foo bar".to_string()),
         ];
 
         let mut lexer = Lexer::new(input.to_string());

@@ -1,7 +1,7 @@
 use super::ast::{
     BlockStatement, Boolean, CallExpression, Expression, ExpressionStatement, FunctionLiteral,
-    Identifier, IfExpression, InfixExpression, LetStatement, NumberLiteral, PrefixExpression,
-    Program, ReturnStatement, Statement,
+    Identifier, IfExpression, InfixExpression, IntegerLiteral, LetStatement, PrefixExpression,
+    Program, ReturnStatement, Statement, StringLiteral,
 };
 use super::lexer::{Lexer, Token};
 use std::collections::HashMap;
@@ -84,7 +84,8 @@ impl Parser {
         parser.next_token();
 
         parser.register_prefix(Token::Identifier("_".to_string()), Parser::parse_identifier);
-        parser.register_prefix(Token::Number(0), Parser::parse_number);
+        parser.register_prefix(Token::Integer(0), Parser::parse_integer);
+        parser.register_prefix(Token::String("_".to_string()), Parser::parse_string);
         parser.register_prefix(Token::Bang, Parser::parse_prefix_expression);
         parser.register_prefix(Token::Minus, Parser::parse_prefix_expression);
         parser.register_prefix(Token::True, Parser::parse_boolean);
@@ -254,7 +255,8 @@ impl Parser {
             .prefix_parse_fns
             .get(&match &self.current_token {
                 Some(Token::Identifier(_)) => Token::Identifier("_".to_string()),
-                Some(Token::Number(_)) => Token::Number(0),
+                Some(Token::Integer(_)) => Token::Integer(0),
+                Some(Token::String(_)) => Token::String("_".to_string()),
                 Some(token) => token.clone(),
                 _ => panic!("Unexpected token: {:?}", self.current_token),
             })
@@ -295,14 +297,28 @@ impl Parser {
         }
     }
 
-    pub fn parse_number(&mut self) -> Result<Expression, ParserError> {
+    pub fn parse_integer(&mut self) -> Result<Expression, ParserError> {
         match &self.current_token {
-            Some(Token::Number(n)) => Ok(Expression::NumberLiteral(NumberLiteral::new(
-                Token::Number(*n),
+            Some(Token::Integer(n)) => Ok(Expression::IntegerLiteral(IntegerLiteral::new(
+                Token::Integer(*n),
                 *n,
             ))),
             Some(unexpected_token) => Err(ParserError::UnexpectedToken {
-                expected: Token::Number(0),
+                expected: Token::Integer(0),
+                actual: unexpected_token.clone(),
+            }),
+            None => Err(ParserError::UnexpectedEof),
+        }
+    }
+
+    pub fn parse_string(&mut self) -> Result<Expression, ParserError> {
+        match &self.current_token {
+            Some(Token::String(s)) => Ok(Expression::StringLiteral(StringLiteral::new(
+                Token::String(s.to_string()),
+                s.to_string(),
+            ))),
+            Some(unexpected_token) => Err(ParserError::UnexpectedToken {
+                expected: Token::String("String".to_string()),
                 actual: unexpected_token.clone(),
             }),
             None => Err(ParserError::UnexpectedEof),
@@ -545,10 +561,10 @@ mod tests {
         }
     }
 
-    fn assert_number_literal(expression: &Expression, expected: i64) {
+    fn assert_integer_literal(expression: &Expression, expected: i64) {
         match expression {
-            Expression::NumberLiteral(number) => assert_eq!(number.value, expected),
-            _ => panic!("Expected NumberLiteral, but got {:?}", expression),
+            Expression::IntegerLiteral(integer) => assert_eq!(integer.value, expected),
+            _ => panic!("Expected IntegerLiteral, but got {:?}", expression),
         }
     }
 
@@ -650,7 +666,7 @@ mod tests {
     }
 
     #[test]
-    fn test_number() {
+    fn test_integer() {
         let input = "5;";
         let program = Parser::new(Lexer::new(input.to_string())).parse_program();
 
@@ -658,7 +674,7 @@ mod tests {
 
         match program.statements.get(0) {
             Some(Statement::Expression(statement)) => {
-                assert_number_literal(&statement.expression, 5)
+                assert_integer_literal(&statement.expression, 5)
             }
             _ => panic!(
                 "Expected ExpressionStatement, but got {:?}",
@@ -666,6 +682,26 @@ mod tests {
             ),
         }
     }
+
+    #[test]
+    fn test_string() {
+        let input = "\"hello world\";";
+        let program = Parser::new(Lexer::new(input.to_string())).parse_program();
+
+        expect_statement_len(&program, 1);
+
+        match program.statements.get(0) {
+            Some(Statement::Expression(statement)) => match &statement.expression {
+                Expression::StringLiteral(string) => assert_eq!(string.value, "hello world"),
+                _ => panic!("Expected StringLiteral, but got {:?}", statement.expression),
+            },
+            _ => panic!(
+                "Expected ExpressionStatement, but got {:?}",
+                program.statements.get(0)
+            ),
+        }
+    }
+
     #[test]
     fn test_parsing_prefix_expressions() {
         struct Case {
@@ -700,15 +736,15 @@ mod tests {
                     Expression::PrefixExpression(expression) => {
                         assert_eq!(expression.operator, case.operator);
                         match &*expression.right {
-                            Expression::NumberLiteral(number) => {
-                                assert_eq!(Object::Integer(number.value), case.value)
+                            Expression::IntegerLiteral(integer) => {
+                                assert_eq!(Object::Integer(integer.value), case.value)
                             }
                             Expression::Boolean(boolean) => {
                                 let boolean: Object = boolean.clone().into();
                                 assert_eq!(boolean, case.value);
                             }
                             _ => panic!(
-                                "Expected NumberLiteral or Boolean, but got {:?}",
+                                "Expected IntegerLiteral or Boolean, but got {:?}",
                                 expression.right
                             ),
                         }
@@ -775,7 +811,7 @@ mod tests {
                     Expression::InfixExpression(expression) => {
                         assert_eq!(expression.operator, case.operator);
                         match &*expression.left {
-                            Expression::NumberLiteral(n) => {
+                            Expression::IntegerLiteral(n) => {
                                 assert_eq!(Object::Integer(n.value), case.left)
                             }
                             Expression::Boolean(boolean) => {
@@ -783,20 +819,20 @@ mod tests {
                                 assert_eq!(boolean, case.left);
                             }
                             _ => panic!(
-                                "Expected NumberLiteral or Boolean, but got {:?}",
+                                "Expected IntegerLiteral or Boolean, but got {:?}",
                                 expression.left
                             ),
                         }
                         match &*expression.right {
-                            Expression::NumberLiteral(number) => {
-                                assert_eq!(Object::Integer(number.value), case.right);
+                            Expression::IntegerLiteral(integer) => {
+                                assert_eq!(Object::Integer(integer.value), case.right);
                             }
                             Expression::Boolean(boolean) => {
                                 let boolean: Object = boolean.clone().into();
                                 assert_eq!(boolean, case.right);
                             }
                             _ => panic!(
-                                "Expected NumberLiteral or Boolean, but got {:?}",
+                                "Expected IntegerLiteral or Boolean, but got {:?}",
                                 expression.right
                             ),
                         }
@@ -940,13 +976,13 @@ mod tests {
                 Expression::CallExpression(call_expression) => {
                     assert_identifier(&call_expression.function, "add");
                     assert_eq!(call_expression.arguments.len(), 3);
-                    assert_number_literal(call_expression.arguments.get(0).unwrap(), 1);
+                    assert_integer_literal(call_expression.arguments.get(0).unwrap(), 1);
 
                     match call_expression.arguments.get(1).unwrap() {
                         Expression::InfixExpression(infix_expression) => {
                             assert_eq!(infix_expression.operator, "*");
-                            assert_number_literal(&*infix_expression.left, 2);
-                            assert_number_literal(&*infix_expression.right, 3);
+                            assert_integer_literal(&*infix_expression.left, 2);
+                            assert_integer_literal(&*infix_expression.right, 3);
                         }
                         _ => panic!(
                             "Expected InfixExpression, but got {:?}",
@@ -957,8 +993,8 @@ mod tests {
                         Expression::InfixExpression(infix_expression) => {
                             assert_eq!(infix_expression.operator, "+");
 
-                            assert_number_literal(&*infix_expression.left, 4);
-                            assert_number_literal(&*infix_expression.right, 5);
+                            assert_integer_literal(&*infix_expression.left, 4);
+                            assert_integer_literal(&*infix_expression.right, 5);
                         }
                         _ => panic!(
                             "Expected InfixExpression, but got {:?}",

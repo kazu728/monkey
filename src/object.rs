@@ -9,6 +9,7 @@ use crate::{
 #[derive(Debug, Clone, PartialEq)]
 pub enum Object {
     Integer(i64),
+    String(String),
     Bool(bool),
     Return(Box<Object>),
     Function(Vec<Identifier>, BlockStatement, Environment),
@@ -22,6 +23,7 @@ impl fmt::Display for Object {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Object::Integer(val) => write!(f, "{}", val),
+            Object::String(val) => write!(f, "{}", val),
             Object::Bool(val) => write!(f, "{}", val),
             Object::Return(val) => write!(f, "return {}", val),
             Object::Error(val) => write!(f, "error: {}", val),

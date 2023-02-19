@@ -60,7 +60,8 @@ fn evaluate_block_statement(block_statement: BlockStatement, env: &mut Environme
 
 fn evaluate_expression(expression: Expression, env: &mut Environment) -> Object {
     match expression {
-        Expression::NumberLiteral(integer_literal) => Object::Integer(integer_literal.value),
+        Expression::IntegerLiteral(integer_literal) => Object::Integer(integer_literal.value),
+        Expression::StringLiteral(string_literal) => Object::String(string_literal.value),
         Expression::Boolean(boolean) => boolean.into(),
         Expression::PrefixExpression(prefix_expression) => {
             evaluate_prefix_expression(prefix_expression, env)
@@ -273,6 +274,17 @@ mod tests {
                 _ => panic!("object is not Integer. got={:?}", evaluated),
             };
         }
+    }
+
+    #[test]
+    fn test_string_literal() {
+        let input = "\"hello world\"";
+        let evaluated = test_eval(input.to_string());
+
+        match evaluated {
+            Object::String(val) => assert_eq!(val, "hello world"),
+            _ => panic!("object is not String. got={:?}", evaluated),
+        };
     }
 
     #[test]
