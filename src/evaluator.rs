@@ -2,6 +2,7 @@ use super::ast::{
     BlockStatement, Expression, Identifier, IfExpression, InfixExpression, PrefixExpression,
     Program, Statement,
 };
+use super::builtin::BUILTIN;
 use super::environment::Environment;
 use super::object::{Object, OBJECT_NULL};
 
@@ -73,6 +74,8 @@ fn evaluate_expression(expression: Expression, env: &mut Environment) -> Object 
         Expression::Identifier(identifier) => {
             if let Some(obj) = env.get(&identifier.get_token_value()) {
                 obj.clone()
+            } else if let Some(obj) = BUILTIN.get(&identifier.get_token_value()) {
+                obj.clone()
             } else {
                 Object::Error(format!(
                     "identifier not found: {}",
@@ -115,6 +118,7 @@ fn apply_function(function: Object, args: Vec<Object>) -> Object {
 
             evaluate_block_statement(body, &mut extended_env)
         }
+        Object::BuiltinFunction(builtin) => builtin(args),
         _ => Object::Error(format!("not a function: {:?}", function)),
     }
 }
@@ -571,6 +575,44 @@ mod tests {
             let evaluated = test_eval(case.input);
             match evaluated {
                 Object::Integer(val) => assert_eq!(val, case.expected),
+                _ => panic!("object is not Integer. got={}", evaluated),
+            }
+        }
+    }
+
+    #[test]
+    fn test_builtin_function() {
+        struct Case {
+            input: String,
+            expected: Object,
+        }
+        impl Case {
+            fn new(input: &str, expected: Object) -> Self {
+                Case {
+                    input: input.to_string(),
+                    expected,
+                }
+            }
+        }
+        let cases = vec![
+            Case::new("len(\"\")", Object::Integer(0)),
+            Case::new("len(\"four\")", Object::Integer(4)),
+            Case::new("len(\"hello world\")", Object::Integer(11)),
+            Case::new(
+                "len(1)",
+                Object::Error("argument to `len` not supported, got INTEGER".to_string()),
+            ),
+            Case::new(
+                "len(\"one\", \"two\")",
+                Object::Error("wrong number of arguments. got=2, want=1".to_string()),
+            ),
+        ];
+
+        for case in cases {
+            let evaluated = test_eval(case.input);
+            match evaluated {
+                Object::Integer(val) => assert_eq!(Object::Integer(val), case.expected),
+                Object::Error(val) => assert_eq!(Object::Error(val), case.expected),
                 _ => panic!("object is not Integer. got={}", evaluated),
             }
         }

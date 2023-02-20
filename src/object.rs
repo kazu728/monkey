@@ -13,6 +13,7 @@ pub enum Object {
     Bool(bool),
     Return(Box<Object>),
     Function(Vec<Identifier>, BlockStatement, Environment),
+    BuiltinFunction(fn(Vec<Object>) -> Object),
     Error(String),
     Null,
 }
@@ -39,7 +40,21 @@ impl fmt::Display for Object {
                 body,
                 env
             ),
+            Object::BuiltinFunction(_) => write!(f, "builtin function"),
         }
+    }
+}
+
+pub fn transform_to_object_type(object: &Object) -> &'static str {
+    match object {
+        Object::Integer(_) => "INTEGER",
+        Object::String(_) => "STRING",
+        Object::Bool(_) => "BOOLEAN",
+        Object::Return(_) => "RETURN",
+        Object::Function(_, _, _) => "FUNCTION",
+        Object::BuiltinFunction(_) => "BUILTIN",
+        Object::Error(_) => "ERROR",
+        Object::Null => "NULL",
     }
 }
 
