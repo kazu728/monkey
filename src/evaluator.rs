@@ -190,6 +190,13 @@ fn evaluate_infix_expression(infix_expression: InfixExpression, env: &mut Enviro
                 infix_expression.operator
             )),
         },
+        (Object::String(a), Object::String(b)) => match infix_expression.operator.as_str() {
+            "+" => Object::String(format!("{}{}", a, b)),
+            _ => Object::Error(format!(
+                "unknown operator: STRING {} STRING",
+                infix_expression.operator
+            )),
+        },
         (Object::Bool(a), Object::Bool(b)) => match infix_expression.operator.as_str() {
             "==" => Object::Bool(a == b),
             "!=" => Object::Bool(a != b),
@@ -279,6 +286,17 @@ mod tests {
     #[test]
     fn test_string_literal() {
         let input = "\"hello world\"";
+        let evaluated = test_eval(input.to_string());
+
+        match evaluated {
+            Object::String(val) => assert_eq!(val, "hello world"),
+            _ => panic!("object is not String. got={:?}", evaluated),
+        };
+    }
+
+    #[test]
+    fn test_string_concatenation() {
+        let input = "\"hello\" + \" \" + \"world\"";
         let evaluated = test_eval(input.to_string());
 
         match evaluated {
@@ -470,6 +488,7 @@ mod tests {
                 "unknown operator: BOOLEAN + BOOLEAN",
             ),
             Case::new("foobar", "identifier not found: foobar"),
+            Case::new("\"Hello\" - \"World\"", "unknown operator: STRING - STRING"),
         ];
 
         for case in cases {

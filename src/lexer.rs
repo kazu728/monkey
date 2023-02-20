@@ -115,7 +115,7 @@ impl Lexer {
                         self.pop();
                         let mut s = String::new();
 
-                        while let Some('a'..='z' | '_' | ' ') = self.peek() {
+                        while let Some('a'..='z' | 'A'..='Z' | '_' | ' ') = self.peek() {
                             let popped = self
                                 .pop()
                                 .expect("Peek returned Some, but pop returned None");
