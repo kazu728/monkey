@@ -60,6 +60,8 @@ pub enum Expression {
     IfExpression(IfExpression),
     FunctionLiteral(FunctionLiteral),
     CallExpression(CallExpression),
+    ArrayLiteral(ArrayLiteral),
+    IndexExpression(IndexExpression),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -220,6 +222,35 @@ impl CallExpression {
             token,
             function: Box::new(function),
             arguments,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ArrayLiteral {
+    pub token: Token,
+    pub elements: Vec<Expression>,
+}
+
+impl ArrayLiteral {
+    pub fn new(token: Token, elements: Vec<Expression>) -> ArrayLiteral {
+        ArrayLiteral { token, elements }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct IndexExpression {
+    pub token: Token,
+    pub left: Box<Expression>,
+    pub index: Box<Expression>,
+}
+
+impl IndexExpression {
+    pub fn new(token: Token, left: Expression, index: Expression) -> IndexExpression {
+        IndexExpression {
+            token,
+            left: Box::new(left),
+            index: Box::new(index),
         }
     }
 }

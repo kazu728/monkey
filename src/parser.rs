@@ -1,7 +1,7 @@
 use super::ast::{
-    BlockStatement, Boolean, CallExpression, Expression, ExpressionStatement, FunctionLiteral,
-    Identifier, IfExpression, InfixExpression, IntegerLiteral, LetStatement, PrefixExpression,
-    Program, ReturnStatement, Statement, StringLiteral,
+    ArrayLiteral, BlockStatement, Boolean, CallExpression, Expression, ExpressionStatement,
+    FunctionLiteral, Identifier, IfExpression, IndexExpression, InfixExpression, IntegerLiteral,
+    LetStatement, PrefixExpression, Program, ReturnStatement, Statement, StringLiteral,
 };
 use super::lexer::{Lexer, Token};
 use std::collections::HashMap;
@@ -24,6 +24,7 @@ enum Precedence {
     Product,
     Prefix,
     Call,
+    Index,
 }
 
 impl Precedence {
@@ -34,6 +35,7 @@ impl Precedence {
             Token::Plus | Token::Minus => Precedence::Sum,
             Token::Slash | Token::Asterisk => Precedence::Product,
             Token::LParen => Precedence::Call,
+            Token::LBracket => Precedence::Index,
             _ => Precedence::Lowest,
         }
     }
@@ -91,6 +93,7 @@ impl Parser {
         parser.register_prefix(Token::True, Parser::parse_boolean);
         parser.register_prefix(Token::False, Parser::parse_boolean);
         parser.register_prefix(Token::LParen, Parser::parse_grouped_expression);
+        parser.register_prefix(Token::LBracket, Parser::parse_array_literal);
         parser.register_prefix(Token::If, Parser::parse_if_expression);
         parser.register_prefix(Token::Fn, Parser::parse_function_literal);
         parser.register_infix(Token::Plus, Parser::parse_infix_expression);
@@ -102,6 +105,7 @@ impl Parser {
         parser.register_infix(Token::Lt, Parser::parse_infix_expression);
         parser.register_infix(Token::Gt, Parser::parse_infix_expression);
         parser.register_infix(Token::LParen, Parser::parse_call_expression);
+        parser.register_infix(Token::LBracket, Parser::parse_index_expression);
 
         parser
     }
@@ -260,7 +264,9 @@ impl Parser {
                 Some(token) => token.clone(),
                 _ => panic!("Unexpected token: {:?}", self.current_token),
             })
-            .expect("Expression's parseFn is not registered")
+            .ok_or(ParserError::NotPrefixOperator {
+                actual: self.current_token.clone().unwrap(),
+            })?
             .apply)(self)?;
 
         while match &self.peek_token {
@@ -377,6 +383,15 @@ impl Parser {
 
         Ok(expression)
     }
+
+    pub fn parse_array_literal(&mut self) -> Result<Expression, ParserError> {
+        let token = self.current_token.clone().unwrap();
+
+        let elements = self.parse_expression_list(Token::RBracket)?;
+
+        Ok(Expression::ArrayLiteral(ArrayLiteral::new(token, elements)))
+    }
+
     pub fn parse_if_expression(&mut self) -> Result<Expression, ParserError> {
         self.expect_token(Token::LParen)?;
         self.next_token();
@@ -513,14 +528,14 @@ impl Parser {
         Ok(Expression::CallExpression(CallExpression::new(
             self.current_token.clone().unwrap(),
             function,
-            self.parse_call_arguments()?,
+            self.parse_expression_list(Token::RParen)?,
         )))
     }
 
-    fn parse_call_arguments(&mut self) -> Result<Vec<Expression>, ParserError> {
+    fn parse_expression_list(&mut self, end: Token) -> Result<Vec<Expression>, ParserError> {
         let mut args: Vec<Expression> = Vec::new();
 
-        if self.peek_token == Some(Token::RParen) {
+        if self.peek_token == Some(end.clone()) {
             self.next_token();
             return Ok(args);
         }
@@ -535,8 +550,23 @@ impl Parser {
             args.push(self.parse_expression(Precedence::Lowest)?);
         }
 
-        self.expect_token(Token::RParen)?;
+        self.expect_token(end)?;
         Ok(args)
+    }
+
+    pub fn parse_index_expression(&mut self, left: Expression) -> Result<Expression, ParserError> {
+        let current_token = self.current_token.clone().unwrap();
+        self.next_token();
+
+        let index = self.parse_expression(Precedence::Lowest)?;
+
+        self.expect_token(Token::RBracket)?;
+
+        Ok(Expression::IndexExpression(IndexExpression::new(
+            current_token,
+            left,
+            index,
+        )))
     }
 }
 
@@ -1004,6 +1034,80 @@ mod tests {
                 }
                 _ => panic!(
                     "Expected CallExpression, but got {:?}",
+                    statement.expression
+                ),
+            },
+            _ => panic!(
+                "Expected ExpressionStatement, but got {:?}",
+                program.statements.get(0)
+            ),
+        }
+    }
+
+    #[test]
+    fn test_parsing_array_literal() {
+        let input = "[1, 2 * 2, 3 + 3]";
+        let program = Parser::new(Lexer::new(input.to_string())).parse_program();
+
+        match program.statements.get(0) {
+            Some(Statement::Expression(statement)) => match &statement.expression {
+                Expression::ArrayLiteral(array_literal) => {
+                    assert_eq!(array_literal.elements.len(), 3);
+                    assert_integer_literal(&array_literal.elements.get(0).unwrap(), 1);
+                    match array_literal.elements.get(1).unwrap() {
+                        Expression::InfixExpression(infix_expression) => {
+                            assert_eq!(infix_expression.operator, "*");
+                            assert_integer_literal(&*infix_expression.left, 2);
+                            assert_integer_literal(&*infix_expression.right, 2);
+                        }
+                        _ => panic!(
+                            "Expected InfixExpression, but got {:?}",
+                            array_literal.elements.get(1)
+                        ),
+                    }
+                    match array_literal.elements.get(2).unwrap() {
+                        Expression::InfixExpression(infix_expression) => {
+                            assert_eq!(infix_expression.operator, "+");
+                            assert_integer_literal(&*infix_expression.left, 3);
+                            assert_integer_literal(&*infix_expression.right, 3);
+                        }
+                        _ => panic!(
+                            "Expected InfixExpression, but got {:?}",
+                            array_literal.elements.get(2)
+                        ),
+                    }
+                }
+                _ => panic!("Expected ArrayLiteral, but got {:?}", statement.expression),
+            },
+            _ => panic!(
+                "Expected ExpressionStatement, but got {:?}",
+                program.statements.get(0)
+            ),
+        }
+    }
+    #[test]
+    fn test_parsing_index_expressions() {
+        let input = "myArray[1 + 1]";
+        let program = Parser::new(Lexer::new(input.to_string())).parse_program();
+
+        match program.statements.get(0) {
+            Some(Statement::Expression(statement)) => match &statement.expression {
+                Expression::IndexExpression(index_expression) => {
+                    assert_identifier(&index_expression.left, "myArray");
+                    match &*index_expression.index {
+                        Expression::InfixExpression(infix_expression) => {
+                            assert_eq!(infix_expression.operator, "+");
+                            assert_integer_literal(&*infix_expression.left, 1);
+                            assert_integer_literal(&*infix_expression.right, 1);
+                        }
+                        _ => panic!(
+                            "Expected InfixExpression, but got {:?}",
+                            index_expression.index
+                        ),
+                    }
+                }
+                _ => panic!(
+                    "Expected IndexExpression, but got {:?}",
                     statement.expression
                 ),
             },

@@ -14,6 +14,7 @@ pub enum Object {
     Return(Box<Object>),
     Function(Vec<Identifier>, BlockStatement, Environment),
     BuiltinFunction(fn(Vec<Object>) -> Object),
+    Array(Vec<Object>),
     Error(String),
     Null,
 }
@@ -41,6 +42,14 @@ impl fmt::Display for Object {
                 env
             ),
             Object::BuiltinFunction(_) => write!(f, "builtin function"),
+            Object::Array(vals) => write!(
+                f,
+                "[{}]",
+                vals.iter()
+                    .map(|v| v.to_string())
+                    .collect::<Vec<String>>()
+                    .join(", ")
+            ),
         }
     }
 }
@@ -53,6 +62,7 @@ pub fn transform_to_object_type(object: &Object) -> &'static str {
         Object::Return(_) => "RETURN",
         Object::Function(_, _, _) => "FUNCTION",
         Object::BuiltinFunction(_) => "BUILTIN",
+        Object::Array(_) => "ARRAY",
         Object::Error(_) => "ERROR",
         Object::Null => "NULL",
     }

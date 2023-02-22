@@ -108,6 +108,30 @@ fn evaluate_expression(expression: Expression, env: &mut Environment) -> Object 
 
             apply_function(function, args)
         }
+        Expression::ArrayLiteral(array_literal) => {
+            let mut elements = vec![];
+            for element in array_literal.elements {
+                let evaluated = evaluate_expression(element, env);
+                if let Object::Error(_) = evaluated {
+                    return evaluated;
+                }
+                elements.push(evaluated);
+            }
+            Object::Array(elements)
+        }
+        Expression::IndexExpression(index_expression) => {
+            let left = evaluate_expression(*index_expression.left, env);
+            if let Object::Error(_) = left {
+                return left;
+            }
+
+            let index = evaluate_expression(*index_expression.index, env);
+            if let Object::Error(_) = index {
+                return index;
+            }
+
+            evaluate_index_expression(left, index)
+        }
     }
 }
 
@@ -235,6 +259,19 @@ fn evaluate_if_expression(if_expression: IfExpression, env: &mut Environment) ->
     }
 }
 
+fn evaluate_index_expression(left: Object, index: Object) -> Object {
+    match (left.clone(), index) {
+        (Object::Array(elements), Object::Integer(index)) => {
+            if index < 0 || elements.len() as i64 <= index {
+                OBJECT_NULL
+            } else {
+                elements[index as usize].clone()
+            }
+        }
+        _ => Object::Error(format!("index operator not supported: {:?}", left)),
+    }
+}
+
 fn is_truthy(object: Object) -> bool {
     match object {
         Object::Bool(val) => val,
@@ -256,6 +293,13 @@ mod tests {
         let program = Parser::new(Lexer::new(input)).parse_program();
 
         eval(program, &mut Environment::new())
+    }
+
+    fn test_integer_object(object: &Object, expected: i64) {
+        match object {
+            Object::Integer(val) => assert_eq!(val, &expected),
+            _ => panic!("object is not Integer. got={:?}", object),
+        }
     }
 
     #[test]
@@ -613,6 +657,67 @@ mod tests {
             match evaluated {
                 Object::Integer(val) => assert_eq!(Object::Integer(val), case.expected),
                 Object::Error(val) => assert_eq!(Object::Error(val), case.expected),
+                _ => panic!("object is not Integer. got={}", evaluated),
+            }
+        }
+    }
+
+    #[test]
+    fn test_array_literals() {
+        let input = "[1, 2 * 2, 3 + 3]";
+        let evaluated = test_eval(input.to_string());
+
+        match evaluated {
+            Object::Array(elements) => {
+                assert_eq!(elements.len(), 3);
+
+                test_integer_object(elements.get(0).unwrap(), 1);
+                test_integer_object(elements.get(1).unwrap(), 4);
+                test_integer_object(elements.get(2).unwrap(), 6);
+            }
+            _ => panic!("object is not Array. got={}", evaluated),
+        }
+    }
+
+    #[test]
+    fn test_array_index_expressions() {
+        struct Case {
+            input: String,
+            expected: Object,
+        }
+        impl Case {
+            fn new(input: &str, expected: Object) -> Self {
+                Case {
+                    input: input.to_string(),
+                    expected,
+                }
+            }
+        }
+
+        let cases = vec![
+            Case::new("[1, 2, 3][0]", Object::Integer(1)),
+            Case::new("[1, 2, 3][1]", Object::Integer(2)),
+            Case::new("[1, 2, 3][2]", Object::Integer(3)),
+            Case::new("let i = 0; [1][i];", Object::Integer(1)),
+            Case::new("[1, 2, 3][1 + 1];", Object::Integer(3)),
+            Case::new("let myArray = [1, 2, 3]; myArray[2];", Object::Integer(3)),
+            Case::new(
+                "let myArray = [1, 2, 3]; myArray[0] + myArray[1] + myArray[2];",
+                Object::Integer(6),
+            ),
+            Case::new(
+                "let myArray = [1, 2, 3]; let i = myArray[0]; myArray[i]",
+                Object::Integer(2),
+            ),
+            Case::new("[1, 2, 3][3]", Object::Null),
+            Case::new("[1, 2, 3][-1]", Object::Null),
+        ];
+
+        for case in cases {
+            let evaluated = test_eval(case.input);
+            match evaluated {
+                Object::Integer(val) => assert_eq!(Object::Integer(val), case.expected),
+                Object::Null => assert_eq!(Object::Null, case.expected),
                 _ => panic!("object is not Integer. got={}", evaluated),
             }
         }

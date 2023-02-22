@@ -28,6 +28,8 @@ pub enum Token {
     RParen,
     LBrace,
     RBrace,
+    LBracket,
+    RBracket,
 
     Fn,
     Let,
@@ -88,7 +90,7 @@ impl Lexer {
                 Some(c) => match c {
                     'a'..='z' | '_' => {
                         let mut s = String::new();
-                        while let Some('a'..='z' | '_') = self.peek() {
+                        while let Some('a'..='z' | 'A'..='Z' | '_') = self.peek() {
                             let popped = self
                                 .pop()
                                 .expect("Peek returned Some, but pop returned None");
@@ -154,6 +156,8 @@ impl Lexer {
                     ')' => return self.pop().and(Some(Token::RParen)),
                     '{' => return self.pop().and(Some(Token::LBrace)),
                     '}' => return self.pop().and(Some(Token::RBrace)),
+                    '[' => return self.pop().and(Some(Token::LBracket)),
+                    ']' => return self.pop().and(Some(Token::RBracket)),
                     ',' => return self.pop().and(Some(Token::Comma)),
                     ';' => return self.pop().and(Some(Token::Semicolon)),
                     ' ' | '\t' | '\n' => {
@@ -220,6 +224,7 @@ mod tests {
             10 != 9;
             \"foobar\"
             \"foo bar\"
+            [1, 2];
         ";
 
         let expect: Vec<Token> = vec![
@@ -298,6 +303,12 @@ mod tests {
             Token::Semicolon,
             Token::String("foobar".to_string()),
             Token::String("foo bar".to_string()),
+            Token::LBracket,
+            Token::Integer(1),
+            Token::Comma,
+            Token::Integer(2),
+            Token::RBracket,
+            Token::Semicolon,
         ];
 
         let mut lexer = Lexer::new(input.to_string());
