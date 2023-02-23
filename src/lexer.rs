@@ -54,7 +54,7 @@ static KEYWORDS: phf::Map<&'static str, Token> = phf_map! {
 pub struct Lexer {
     input: String,
     pos: usize,
-    next_token: Option<Token>,
+    next_token: Token,
 }
 
 impl Lexer {
@@ -62,7 +62,7 @@ impl Lexer {
         Lexer {
             input,
             pos: 0,
-            next_token: None,
+            next_token: Token::Eof,
         }
     }
 
@@ -75,18 +75,20 @@ impl Lexer {
         self.input.chars().nth(self.pos - 1)
     }
 
-    pub fn pop_token(&mut self) -> Option<Token> {
-        if self.next_token.is_none() {
-            self.next_token = self.pop_token_internal();
+    pub fn pop_token(&mut self) -> Token {
+        let mut token = Token::Eof;
+
+        if self.next_token == Token::Eof {
+            token = self.pop_token_internal();
         }
 
-        self.next_token.take()
+        token
     }
 
-    fn pop_token_internal(&mut self) -> Option<Token> {
+    fn pop_token_internal(&mut self) -> Token {
         loop {
             match self.peek() {
-                None => return None,
+                None => return Token::Eof,
                 Some(c) => match c {
                     'a'..='z' | '_' => {
                         let mut s = String::new();
@@ -96,11 +98,10 @@ impl Lexer {
                                 .expect("Peek returned Some, but pop returned None");
                             s.push(popped);
                         }
-
-                        return Some(match KEYWORDS.get(&s) {
+                        return match KEYWORDS.get(&s) {
                             Some(token) => token.clone(),
                             None => Token::Identifier(s),
-                        });
+                        };
                     }
                     '0'..='9' => {
                         let mut s = String::new();
@@ -111,7 +112,7 @@ impl Lexer {
                             s.push(popped);
                         }
 
-                        return Some(Token::Integer(s.parse().unwrap()));
+                        return Token::Integer(s.parse().unwrap());
                     }
                     '"' => {
                         self.pop();
@@ -126,44 +127,43 @@ impl Lexer {
 
                         self.pop();
 
-                        return Some(Token::String(s));
+                        return Token::String(s);
                     }
                     '=' => {
                         self.pop();
-                        if self.peek() == Some('=') {
-                            self.pop();
-                            return Some(Token::Eq);
-                        } else {
-                            return Some(Token::Assign);
-                        }
+
+                        return match self.peek() {
+                            Some('=') => self.pop().and(Some(Token::Eq)).unwrap(),
+                            _ => Token::Assign,
+                        };
                     }
-                    '+' => return self.pop().and(Some(Token::Plus)),
-                    '-' => return self.pop().and(Some(Token::Minus)),
+                    '+' => return self.pop().and(Some(Token::Plus)).unwrap(),
+                    '-' => return self.pop().and(Some(Token::Minus)).unwrap(),
                     '!' => {
-                        self.pop();
-                        if self.peek() == Some('=') {
-                            self.pop();
-                            return Some(Token::NotEq);
-                        } else {
-                            return Some(Token::Bang);
-                        }
+                        return self
+                            .pop()
+                            .and_then(|_| match self.peek() {
+                                Some('=') => self.pop().and(Some(Token::NotEq)),
+                                _ => Some(Token::Bang),
+                            })
+                            .unwrap()
                     }
-                    '*' => return self.pop().and(Some(Token::Asterisk)),
-                    '/' => return self.pop().and(Some(Token::Slash)),
-                    '<' => return self.pop().and(Some(Token::Lt)),
-                    '>' => return self.pop().and(Some(Token::Gt)),
-                    '(' => return self.pop().and(Some(Token::LParen)),
-                    ')' => return self.pop().and(Some(Token::RParen)),
-                    '{' => return self.pop().and(Some(Token::LBrace)),
-                    '}' => return self.pop().and(Some(Token::RBrace)),
-                    '[' => return self.pop().and(Some(Token::LBracket)),
-                    ']' => return self.pop().and(Some(Token::RBracket)),
-                    ',' => return self.pop().and(Some(Token::Comma)),
-                    ';' => return self.pop().and(Some(Token::Semicolon)),
+                    '*' => return self.pop().and(Some(Token::Asterisk)).unwrap(),
+                    '/' => return self.pop().and(Some(Token::Slash)).unwrap(),
+                    '<' => return self.pop().and(Some(Token::Lt)).unwrap(),
+                    '>' => return self.pop().and(Some(Token::Gt)).unwrap(),
+                    '(' => return self.pop().and(Some(Token::LParen)).unwrap(),
+                    ')' => return self.pop().and(Some(Token::RParen)).unwrap(),
+                    '{' => return self.pop().and(Some(Token::LBrace)).unwrap(),
+                    '}' => return self.pop().and(Some(Token::RBrace)).unwrap(),
+                    '[' => return self.pop().and(Some(Token::LBracket)).unwrap(),
+                    ']' => return self.pop().and(Some(Token::RBracket)).unwrap(),
+                    ',' => return self.pop().and(Some(Token::Comma)).unwrap(),
+                    ';' => return self.pop().and(Some(Token::Semicolon)).unwrap(),
                     ' ' | '\t' | '\n' => {
                         self.pop();
                     }
-                    _ => return Some(Token::Illegal),
+                    _ => return Token::Illegal,
                 },
             }
         }
@@ -193,6 +193,7 @@ mod tests {
             Token::RBrace,
             Token::Comma,
             Token::Semicolon,
+            Token::Eof,
         ];
 
         let mut lexer = Lexer::new(input.to_string());
@@ -200,7 +201,7 @@ mod tests {
         for token in expect.iter() {
             let popped_token = lexer.pop_token();
 
-            assert_eq!(Some(token), popped_token.as_ref());
+            assert_eq!(token, &popped_token);
         }
     }
 
@@ -309,13 +310,14 @@ mod tests {
             Token::Integer(2),
             Token::RBracket,
             Token::Semicolon,
+            Token::Eof,
         ];
 
         let mut lexer = Lexer::new(input.to_string());
 
         for token in expect.iter() {
             let popped_token = lexer.pop_token();
-            assert_eq!(Some(token), popped_token.as_ref());
+            assert_eq!(token, &popped_token);
         }
     }
 }
